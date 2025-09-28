@@ -34,6 +34,7 @@ active_games: dict[str, Game] = {}
 connected_clients = {}
 pending_tasks: dict[str, asyncio.Task] = {}  # game_id -> pending async task
 
+
 def cancel_pending_task(game_id: str):
     """Cancel any pending task for the given game."""
     if game_id in pending_tasks:
@@ -43,11 +44,13 @@ def cancel_pending_task(game_id: str):
         del pending_tasks[game_id]
         logger.info(f"Cancelled pending task for game {game_id}")
 
+
 def schedule_task(game_id: str, task: asyncio.Task):
     """Schedule a new task for the given game, cancelling any existing task."""
     cancel_pending_task(game_id)  # Cancel existing task first
     pending_tasks[game_id] = task
     logger.info(f"Scheduled new task for game {game_id}")
+
 
 class ConnectionManager:
     def __init__(self):
@@ -93,11 +96,14 @@ class ConnectionManager:
                 message = json.dumps({"type": "game_state", "data": state})
                 await self.send_personal_message(message, player.id)
 
+
 manager = ConnectionManager()
+
 
 @app.get("/")
 async def root():
     return {"message": "Spyfall Online API", "status": "running"}
+
 
 @app.get("/health")
 async def health_check():
@@ -136,6 +142,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         manager.disconnect(client_id)
         await handle_client_disconnect(client_id)
 
+
 async def handle_join_game(client_id: str, message: dict):
     """Handle player joining a game"""
     game_id = message.get("game_id", "default")
@@ -155,7 +162,9 @@ async def handle_join_game(client_id: str, message: dict):
     if existing_player:
         # Player is reconnecting
         existing_player.is_connected = True
-        logger.info(f"Player {existing_player.name} ({client_id}) reconnected to game {game_id}")
+        logger.info(
+            f"Player {existing_player.name} ({client_id}) reconnected to game {game_id}"
+        )
 
         # Send game state to all players
         await manager.send_game_state(game_id)
@@ -164,18 +173,13 @@ async def handle_join_game(client_id: str, message: dict):
         response = {
             "type": "rejoin_success",
             "game_id": game_id,
-            "player_id": client_id
+            "player_id": client_id,
         }
         await manager.send_personal_message(json.dumps(response), client_id)
         return
 
     # Create new player
-    player = Player(
-        id=client_id,
-        name=player_name,
-        is_bot=is_bot,
-        is_connected=True
-    )
+    player = Player(id=client_id, name=player_name, is_bot=is_bot, is_connected=True)
 
     if game.add_player(player):
         logger.info(f"Player {player_name} ({client_id}) joined game {game_id}")
@@ -184,29 +188,23 @@ async def handle_join_game(client_id: str, message: dict):
         await manager.send_game_state(game_id)
 
         # Send join confirmation to the joining player
-        response = {
-            "type": "join_success",
-            "game_id": game_id,
-            "player_id": client_id
-        }
+        response = {"type": "join_success", "game_id": game_id, "player_id": client_id}
         await manager.send_personal_message(json.dumps(response), client_id)
     else:
         # Failed to join (game full or in progress)
         error_response = {
             "type": "join_error",
-            "message": "Cannot join game (full or in progress)"
+            "message": "Cannot join game (full or in progress)",
         }
         await manager.send_personal_message(json.dumps(error_response), client_id)
+
 
 async def handle_start_game(client_id: str, message: dict):
     """Handle game start request"""
     game_id = message.get("game_id")
 
     if not game_id or game_id not in active_games:
-        error_response = {
-            "type": "start_error",
-            "message": "Game not found"
-        }
+        error_response = {"type": "start_error", "message": "Game not found"}
         await manager.send_personal_message(json.dumps(error_response), client_id)
         return
 
@@ -215,10 +213,7 @@ async def handle_start_game(client_id: str, message: dict):
     # Check if the requesting player is in the game
     player = next((p for p in game.players if p.id == client_id), None)
     if not player:
-        error_response = {
-            "type": "start_error",
-            "message": "You are not in this game"
-        }
+        error_response = {"type": "start_error", "message": "You are not in this game"}
         await manager.send_personal_message(json.dumps(error_response), client_id)
         return
 
@@ -226,14 +221,11 @@ async def handle_start_game(client_id: str, message: dict):
     while len(game.players) < 3:
         bot_id = str(uuid.uuid4())
         bot_names = ["Alice", "Bob", "Carol", "Dan", "Eve", "Frank", "Grace"]
-        bot_name = bot_names[len([p for p in game.players if p.is_bot]) % len(bot_names)]
+        bot_name = bot_names[
+            len([p for p in game.players if p.is_bot]) % len(bot_names)
+        ]
 
-        bot_player = Player(
-            id=bot_id,
-            name=bot_name,
-            is_bot=True,
-            is_connected=True
-        )
+        bot_player = Player(id=bot_id, name=bot_name, is_bot=True, is_connected=True)
         game.add_player(bot_player)
         logger.info(f"Added bot {bot_name} to game {game_id}")
 
@@ -248,17 +240,15 @@ async def handle_start_game(client_id: str, message: dict):
         schedule_next_bot_action(game_id, delay=1)
 
         # Send start confirmation
-        response = {
-            "type": "game_started",
-            "game_id": game_id
-        }
+        response = {"type": "game_started", "game_id": game_id}
         await manager.broadcast_to_game(json.dumps(response), game_id)
     else:
         error_response = {
             "type": "start_error",
-            "message": "Cannot start game (insufficient players or wrong status)"
+            "message": "Cannot start game (insufficient players or wrong status)",
         }
         await manager.send_personal_message(json.dumps(error_response), client_id)
+
 
 async def handle_ask_question(client_id: str, message: dict):
     """Handle player asking a question"""
@@ -282,9 +272,10 @@ async def handle_ask_question(client_id: str, message: dict):
         # Send error to the requesting player
         error_response = {
             "type": "question_error",
-            "message": "Cannot ask question (not your turn or invalid target)"
+            "message": "Cannot ask question (not your turn or invalid target)",
         }
         await manager.send_personal_message(json.dumps(error_response), client_id)
+
 
 async def handle_give_answer(client_id: str, message: dict):
     """Handle player giving an answer"""
@@ -307,9 +298,10 @@ async def handle_give_answer(client_id: str, message: dict):
         # Send error to the requesting player
         error_response = {
             "type": "answer_error",
-            "message": "Cannot give answer (not your turn)"
+            "message": "Cannot give answer (not your turn)",
         }
         await manager.send_personal_message(json.dumps(error_response), client_id)
+
 
 async def delayed_bot_action(game_id: str, action_type: str, delay: int = 0):
     """Generic delayed bot action handler with state checking."""
@@ -326,13 +318,21 @@ async def delayed_bot_action(game_id: str, action_type: str, delay: int = 0):
     # Route to appropriate handler based on action type
     if action_type == "turn":
         # Only proceed if game allows bot actions
-        if game.status not in [GameStatus.IN_PROGRESS, GameStatus.VOTING, GameStatus.END_OF_ROUND_VOTING]:
-            logger.info(f"delayed_bot_action: Game {game_id} not in valid state for bot actions (status: {game.status})")
+        if game.status not in [
+            GameStatus.IN_PROGRESS,
+            GameStatus.VOTING,
+            GameStatus.END_OF_ROUND_VOTING,
+        ]:
+            logger.info(
+                f"delayed_bot_action: Game {game_id} not in valid state for bot actions (status: {game.status})"
+            )
             return
 
         # For IN_PROGRESS games, don't act if clock is stopped (voting states expect clock to be stopped)
         if game.status == GameStatus.IN_PROGRESS and game.clock_stopped:
-            logger.info(f"delayed_bot_action: Game {game_id} clock stopped during IN_PROGRESS")
+            logger.info(
+                f"delayed_bot_action: Game {game_id} clock stopped during IN_PROGRESS"
+            )
             return
 
         await handle_bot_turn_immediate(game_id)
@@ -357,22 +357,27 @@ async def delayed_bot_action(game_id: str, action_type: str, delay: int = 0):
             return
         await handle_bot_end_of_round_accusation(game_id)
 
+
 # Convenience wrappers for backward compatibility
 async def delayed_bot_turn(game_id: str, delay: int = 2):
     """Delayed bot turn handling with state checking."""
     await delayed_bot_action(game_id, "turn", delay)
 
+
 async def delayed_bot_voting(game_id: str, delay: int = 0):
     """Delayed bot voting action with state checking."""
     await delayed_bot_action(game_id, "voting", delay)
+
 
 async def delayed_bot_end_of_round_voting(game_id: str, delay: int = 0):
     """Delayed bot end-of-round voting action with state checking."""
     await delayed_bot_action(game_id, "end_of_round_voting", delay)
 
+
 async def delayed_bot_end_of_round_accusation(game_id: str, delay: int = 0):
     """Delayed bot end-of-round accusation action with state checking."""
     await delayed_bot_action(game_id, "end_of_round_accusation", delay)
+
 
 async def handle_bot_turn_immediate(game_id: str):
     """Handle bot's turn immediately without delay - core bot logic."""
@@ -394,12 +399,16 @@ async def handle_bot_turn_immediate(game_id: str):
 
     # Don't handle bot actions if game is not in progress or clock is stopped
     if game.status != GameStatus.IN_PROGRESS or game.clock_stopped:
-        logger.info(f"handle_bot_turn_immediate: Game {game_id} not in progress (status: {game.status}, clock_stopped: {game.clock_stopped})")
+        logger.info(
+            f"handle_bot_turn_immediate: Game {game_id} not in progress (status: {game.status}, clock_stopped: {game.clock_stopped})"
+        )
         return
 
     current_player = next((p for p in game.players if p.id == game.current_turn), None)
 
-    logger.info(f"handle_bot_turn_immediate: Game {game_id}, current turn: {game.current_turn}, current player: {current_player.name if current_player else 'None'}, is_bot: {current_player.is_bot if current_player else 'N/A'}")
+    logger.info(
+        f"handle_bot_turn_immediate: Game {game_id}, current turn: {game.current_turn}, current player: {current_player.name if current_player else 'None'}, is_bot: {current_player.is_bot if current_player else 'N/A'}"
+    )
 
     # Only proceed if it's a bot's turn for Q&A
     if not current_player or not current_player.is_bot:
@@ -408,11 +417,19 @@ async def handle_bot_turn_immediate(game_id: str):
 
     # Check if bot needs to answer a question
     last_message = game.messages[-1] if game.messages else None
-    logger.info(f"handle_bot_turn_immediate: Last message: {last_message.type if last_message else 'None'}, to_player: {last_message.to_player if last_message else 'None'}")
+    logger.info(
+        f"handle_bot_turn_immediate: Last message: {last_message.type if last_message else 'None'}, to_player: {last_message.to_player if last_message else 'None'}"
+    )
 
-    if last_message and last_message.type == "question" and last_message.to_player == current_player.id:
+    if (
+        last_message
+        and last_message.type == "question"
+        and last_message.to_player == current_player.id
+    ):
         # Bot needs to answer
-        logger.info(f"handle_bot_turn_immediate: Bot {current_player.name} needs to answer")
+        logger.info(
+            f"handle_bot_turn_immediate: Bot {current_player.name} needs to answer"
+        )
 
         # Use Claude API to generate answer
         game_state_dict = game.to_player_dict(current_player.id)
@@ -420,15 +437,23 @@ async def handle_bot_turn_immediate(game_id: str):
         questioner_id = last_message.from_player
 
         try:
-            answer = await claude_client.generate_answer(game_state_dict, current_player.id, question, questioner_id)
+            answer = await claude_client.generate_answer(
+                game_state_dict, current_player.id, question, questioner_id
+            )
             if answer:
-                logger.info(f"handle_bot_turn_immediate: Claude generated answer for {current_player.name}: {answer}")
+                logger.info(
+                    f"handle_bot_turn_immediate: Claude generated answer for {current_player.name}: {answer}"
+                )
                 if game.give_answer(current_player.id, answer):
-                    logger.info(f"Bot {current_player.name} gave Claude-generated answer")
+                    logger.info(
+                        f"Bot {current_player.name} gave Claude-generated answer"
+                    )
                     await manager.send_game_state(game_id)
                     schedule_next_bot_action(game_id)
                 else:
-                    logger.info(f"handle_bot_turn_immediate: Failed to give Claude-generated answer")
+                    logger.info(
+                        f"handle_bot_turn_immediate: Failed to give Claude-generated answer"
+                    )
             else:
                 # Fallback to generic answer if Claude fails
                 logger.warning(f"Claude failed to generate answer, using fallback")
@@ -447,32 +472,52 @@ async def handle_bot_turn_immediate(game_id: str):
                 schedule_next_bot_action(game_id)
     else:
         # Bot needs to ask a question
-        logger.info(f"handle_bot_turn_immediate: Bot {current_player.name} needs to ask a question")
+        logger.info(
+            f"handle_bot_turn_immediate: Bot {current_player.name} needs to ask a question"
+        )
         # Get available players (exclude self and the person who just asked this bot)
-        available_players = [p for p in game.players if p.id != current_player.id and p.id != game.last_questioned_by]
+        available_players = [
+            p
+            for p in game.players
+            if p.id != current_player.id and p.id != game.last_questioned_by
+        ]
         if available_players:
             # Use Claude API to generate question
             available_target_ids = [p.id for p in available_players]
             game_state_dict = game.to_player_dict(current_player.id)
 
             try:
-                result = await claude_client.generate_question(game_state_dict, current_player.id, available_target_ids)
+                result = await claude_client.generate_question(
+                    game_state_dict, current_player.id, available_target_ids
+                )
                 if result:
                     target_id, question = result
-                    logger.info(f"handle_bot_turn_immediate: Claude generated question for {current_player.name} -> {target_id}: {question}")
+                    logger.info(
+                        f"handle_bot_turn_immediate: Claude generated question for {current_player.name} -> {target_id}: {question}"
+                    )
                     if game.ask_question(current_player.id, target_id, question):
-                        logger.info(f"Bot {current_player.name} asked Claude-generated question to {target_id}")
+                        logger.info(
+                            f"Bot {current_player.name} asked Claude-generated question to {target_id}"
+                        )
                         await manager.send_game_state(game_id)
                         schedule_next_bot_action(game_id)
                     else:
-                        logger.info(f"handle_bot_turn_immediate: Failed to ask Claude-generated question")
+                        logger.info(
+                            f"handle_bot_turn_immediate: Failed to ask Claude-generated question"
+                        )
                 else:
                     # Fallback to random question if Claude fails
-                    logger.warning(f"Claude failed to generate question, using fallback")
+                    logger.warning(
+                        f"Claude failed to generate question, using fallback"
+                    )
                     target = random.choice(available_players)
                     fallback_question = "What do you think about this place?"
-                    if game.ask_question(current_player.id, target.id, fallback_question):
-                        logger.info(f"Bot {current_player.name} asked fallback question to {target.name}")
+                    if game.ask_question(
+                        current_player.id, target.id, fallback_question
+                    ):
+                        logger.info(
+                            f"Bot {current_player.name} asked fallback question to {target.name}"
+                        )
                         await manager.send_game_state(game_id)
                         schedule_next_bot_action(game_id)
             except Exception as e:
@@ -481,20 +526,27 @@ async def handle_bot_turn_immediate(game_id: str):
                 target = random.choice(available_players)
                 fallback_question = "What do you think about this place?"
                 if game.ask_question(current_player.id, target.id, fallback_question):
-                    logger.info(f"Bot {current_player.name} asked fallback question to {target.name}")
+                    logger.info(
+                        f"Bot {current_player.name} asked fallback question to {target.name}"
+                    )
                     await manager.send_game_state(game_id)
                     schedule_next_bot_action(game_id)
         else:
-            logger.info(f"handle_bot_turn_immediate: No available players to ask (last_questioned_by={game.last_questioned_by})")
+            logger.info(
+                f"handle_bot_turn_immediate: No available players to ask (last_questioned_by={game.last_questioned_by})"
+            )
+
 
 def schedule_next_bot_action(game_id: str, delay: int = 2):
     """Schedule the next bot action with a delay."""
     task = asyncio.create_task(delayed_bot_turn(game_id, delay))
     schedule_task(game_id, task)
 
+
 async def handle_bot_turn(game_id: str):
     """Handle bot's turn - use immediate version for backwards compatibility."""
     await handle_bot_turn_immediate(game_id)
+
 
 async def handle_bot_voting(game_id: str):
     """Handle bots voting on accusations with 50% chance each way"""
@@ -509,9 +561,11 @@ async def handle_bot_voting(game_id: str):
     # Find bots who haven't voted yet
     bots_to_vote = []
     for player in game.players:
-        if (player.is_bot and
-            player.id != game.current_accusation.accused_id and  # Accused can't vote
-            player.id not in game.current_accusation.votes):     # Haven't voted yet
+        if (
+            player.is_bot
+            and player.id != game.current_accusation.accused_id  # Accused can't vote
+            and player.id not in game.current_accusation.votes
+        ):  # Haven't voted yet
             bots_to_vote.append(player)
 
     # Make each bot vote with 50% chance
@@ -531,16 +585,14 @@ async def handle_bot_voting(game_id: str):
             # Check if voting is complete (this triggers resolution if all votes are in)
             # The vote_on_accusation method handles resolution automatically
 
+
 async def handle_accuse_player(client_id: str, message: dict):
     """Handle player making an accusation"""
     game_id = message.get("game_id")
     accused_id = message.get("target")
 
     if not game_id or game_id not in active_games:
-        error_response = {
-            "type": "accusation_error",
-            "message": "Game not found"
-        }
+        error_response = {"type": "accusation_error", "message": "Game not found"}
         await manager.send_personal_message(json.dumps(error_response), client_id)
         return
 
@@ -557,7 +609,9 @@ async def handle_accuse_player(client_id: str, message: dict):
         response_type = "accusation_made"
 
     if success:
-        logger.info(f"Player {client_id} made {accusation_type} accusation against {accused_id} in game {game_id}")
+        logger.info(
+            f"Player {client_id} made {accusation_type} accusation against {accused_id} in game {game_id}"
+        )
 
         # Cancel any pending bot actions - accusation interrupts everything
         cancel_pending_task(game_id)
@@ -566,14 +620,18 @@ async def handle_accuse_player(client_id: str, message: dict):
         await manager.send_game_state(game_id)
 
         # Notify all players about the accusation
-        accuser_name = next((p.name for p in game.players if p.id == client_id), "Unknown")
-        accused_name = next((p.name for p in game.players if p.id == accused_id), "Unknown")
+        accuser_name = next(
+            (p.name for p in game.players if p.id == client_id), "Unknown"
+        )
+        accused_name = next(
+            (p.name for p in game.players if p.id == accused_id), "Unknown"
+        )
 
         response = {
             "type": response_type,
             "accuser": accuser_name,
             "accused": accused_name,
-            "game_id": game_id
+            "game_id": game_id,
         }
         await manager.broadcast_to_game(json.dumps(response), game_id)
 
@@ -583,9 +641,10 @@ async def handle_accuse_player(client_id: str, message: dict):
     else:
         error_response = {
             "type": "accusation_error",
-            "message": "Cannot make accusation (game not in progress, already accused this round, or clock stopped)"
+            "message": "Cannot make accusation (game not in progress, already accused this round, or clock stopped)",
         }
         await manager.send_personal_message(json.dumps(error_response), client_id)
+
 
 async def handle_vote(client_id: str, message: dict):
     """Handle voting on an accusation"""
@@ -606,7 +665,9 @@ async def handle_vote(client_id: str, message: dict):
         vote_type = "mid-game"
 
     if success:
-        logger.info(f"Player {client_id} voted {vote} in {vote_type} voting in game {game_id}")
+        logger.info(
+            f"Player {client_id} voted {vote} in {vote_type} voting in game {game_id}"
+        )
 
         # Send updated game state to all players
         await manager.send_game_state(game_id)
@@ -614,6 +675,7 @@ async def handle_vote(client_id: str, message: dict):
         # Schedule bot actions (voting or accusations) based on game status
         task = asyncio.create_task(delayed_bot_turn(game_id, delay=0))
         schedule_task(game_id, task)
+
 
 async def handle_bot_end_of_round_accusation(game_id: str):
     """Handle bot making end-of-round accusation when it's their turn"""
@@ -624,19 +686,25 @@ async def handle_bot_end_of_round_accusation(game_id: str):
     game = active_games[game_id]
 
     if game.status != GameStatus.END_OF_ROUND_VOTING:
-        logger.info(f"handle_bot_end_of_round_accusation: Game {game_id} not in END_OF_ROUND_VOTING status (current: {game.status})")
+        logger.info(
+            f"handle_bot_end_of_round_accusation: Game {game_id} not in END_OF_ROUND_VOTING status (current: {game.status})"
+        )
         return
 
     # If there's already an accusation, bots should vote (regardless of whose turn it is)
     if game.current_accusation:
-        logger.info(f"handle_bot_end_of_round_accusation: Current accusation exists, handling voting instead")
+        logger.info(
+            f"handle_bot_end_of_round_accusation: Current accusation exists, handling voting instead"
+        )
         task = asyncio.create_task(delayed_bot_end_of_round_voting(game_id))
         schedule_task(game_id, task)
         return
 
     # No active accusation - check if it's a bot's turn to make an accusation
     current_player = next((p for p in game.players if p.id == game.current_turn), None)
-    logger.info(f"handle_bot_end_of_round_accusation: Game {game_id}, current turn: {game.current_turn}, current player: {current_player.name if current_player else 'None'}, is_bot: {current_player.is_bot if current_player else 'N/A'}, has_accused: {current_player.has_accused_this_round if current_player else 'N/A'}")
+    logger.info(
+        f"handle_bot_end_of_round_accusation: Game {game_id}, current turn: {game.current_turn}, current player: {current_player.name if current_player else 'None'}, is_bot: {current_player.is_bot if current_player else 'N/A'}, has_accused: {current_player.has_accused_this_round if current_player else 'N/A'}"
+    )
 
     # Only proceed if it's a bot's turn
     if not current_player or not current_player.is_bot:
@@ -645,7 +713,9 @@ async def handle_bot_end_of_round_accusation(game_id: str):
 
     # Check if bot has already accused this round
     if current_player.has_accused_this_round:
-        logger.info(f"handle_bot_end_of_round_accusation: Bot {current_player.name} has already accused this round")
+        logger.info(
+            f"handle_bot_end_of_round_accusation: Bot {current_player.name} has already accused this round"
+        )
         return
 
     # Add delay to simulate thinking
@@ -656,7 +726,9 @@ async def handle_bot_end_of_round_accusation(game_id: str):
     if potential_targets:
         target = random.choice(potential_targets)
 
-        logger.info(f"Bot {current_player.name} making end-of-round accusation against {target.name}")
+        logger.info(
+            f"Bot {current_player.name} making end-of-round accusation against {target.name}"
+        )
 
         if game.make_end_of_round_accusation(current_player.id, target.id):
             # Send updated game state
@@ -667,7 +739,7 @@ async def handle_bot_end_of_round_accusation(game_id: str):
                 "type": "end_of_round_accusation_made",
                 "accuser": current_player.name,
                 "accused": target.name,
-                "game_id": game_id
+                "game_id": game_id,
             }
             await manager.broadcast_to_game(json.dumps(response), game_id)
 
@@ -675,9 +747,14 @@ async def handle_bot_end_of_round_accusation(game_id: str):
             task = asyncio.create_task(delayed_bot_turn(game_id, delay=0))
             schedule_task(game_id, task)
         else:
-            logger.info(f"handle_bot_end_of_round_accusation: Failed to make accusation for bot {current_player.name}")
+            logger.info(
+                f"handle_bot_end_of_round_accusation: Failed to make accusation for bot {current_player.name}"
+            )
     else:
-        logger.info(f"handle_bot_end_of_round_accusation: No potential targets for bot {current_player.name}")
+        logger.info(
+            f"handle_bot_end_of_round_accusation: No potential targets for bot {current_player.name}"
+        )
+
 
 async def handle_end_of_round_bot_voting(game_id: str):
     """Handle bots voting on end-of-round accusations"""
@@ -692,9 +769,11 @@ async def handle_end_of_round_bot_voting(game_id: str):
     # Find bots who haven't voted yet
     bots_to_vote = []
     for player in game.players:
-        if (player.is_bot and
-            player.id != game.current_accusation.accused_id and  # Accused can't vote
-            player.id not in game.current_accusation.votes):     # Haven't voted yet
+        if (
+            player.is_bot
+            and player.id != game.current_accusation.accused_id  # Accused can't vote
+            and player.id not in game.current_accusation.votes
+        ):  # Haven't voted yet
             bots_to_vote.append(player)
 
     # Make each bot vote with 50% chance
@@ -706,16 +785,24 @@ async def handle_end_of_round_bot_voting(game_id: str):
         vote = random.choice([True, False])
 
         if game.vote_on_end_of_round_accusation(bot.id, vote):
-            logger.info(f"End-of-round bot vote: {bot.name} voted {vote} in game {game_id}")
+            logger.info(
+                f"End-of-round bot vote: {bot.name} voted {vote} in game {game_id}"
+            )
 
             # Send updated game state after each vote
             await manager.send_game_state(game_id)
 
             # If vote resolution moved to next accuser, schedule bot logic
-            if game.status == GameStatus.END_OF_ROUND_VOTING and not game.current_accusation:
-                logger.info(f"Vote resolution complete, scheduling bot logic for next accuser")
+            if (
+                game.status == GameStatus.END_OF_ROUND_VOTING
+                and not game.current_accusation
+            ):
+                logger.info(
+                    f"Vote resolution complete, scheduling bot logic for next accuser"
+                )
                 task = asyncio.create_task(delayed_bot_turn(game_id, delay=0))
                 schedule_task(game_id, task)
+
 
 async def handle_spy_guess_location(client_id: str, message: dict):
     """Handle spy guessing the location"""
@@ -723,17 +810,16 @@ async def handle_spy_guess_location(client_id: str, message: dict):
     guessed_location = message.get("location")
 
     if not game_id or game_id not in active_games:
-        error_response = {
-            "type": "spy_guess_error",
-            "message": "Game not found"
-        }
+        error_response = {"type": "spy_guess_error", "message": "Game not found"}
         await manager.send_personal_message(json.dumps(error_response), client_id)
         return
 
     game = active_games[game_id]
 
     if game.spy_guess_location(client_id, guessed_location):
-        logger.info(f"Spy {client_id} guessed location: {guessed_location} in game {game_id}")
+        logger.info(
+            f"Spy {client_id} guessed location: {guessed_location} in game {game_id}"
+        )
 
         # Cancel any pending bot actions - game is ending
         cancel_pending_task(game_id)
@@ -750,15 +836,16 @@ async def handle_spy_guess_location(client_id: str, message: dict):
             "guessed_location": guessed_location,
             "actual_location": game.location.name if game.location else "Unknown",
             "correct": game.winner == "spy",
-            "game_id": game_id
+            "game_id": game_id,
         }
         await manager.broadcast_to_game(json.dumps(response), game_id)
     else:
         error_response = {
             "type": "spy_guess_error",
-            "message": "Cannot guess location (not the spy, game not in progress, or clock stopped)"
+            "message": "Cannot guess location (not the spy, game not in progress, or clock stopped)",
         }
         await manager.send_personal_message(json.dumps(error_response), client_id)
+
 
 async def handle_client_disconnect(client_id: str):
     """Handle client disconnection"""
@@ -766,7 +853,9 @@ async def handle_client_disconnect(client_id: str):
     for game_id, game in active_games.items():
         player = next((p for p in game.players if p.id == client_id), None)
         if player:
-            logger.info(f"Player {player.name} ({client_id}) disconnected from game {game_id}")
+            logger.info(
+                f"Player {player.name} ({client_id}) disconnected from game {game_id}"
+            )
             player.is_connected = False
 
             # Send updated game state to remaining players
@@ -775,9 +864,10 @@ async def handle_client_disconnect(client_id: str):
             response = {
                 "type": "player_disconnected",
                 "player_id": client_id,
-                "player_name": player.name
+                "player_name": player.name,
             }
             await manager.broadcast_to_game(json.dumps(response), game_id)
+
 
 # Serve React build files in production
 if not os.getenv("DEBUG", "False").lower() == "true":
@@ -785,6 +875,7 @@ if not os.getenv("DEBUG", "False").lower() == "true":
 
 if __name__ == "__main__":
     import uvicorn
+
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", 8000))
     debug = os.getenv("DEBUG", "False").lower() == "true"

@@ -225,8 +225,9 @@ const GameBoard: React.FC<GameBoardProps> = ({
       </div>
 
       {/* Input Section */}
-      <div className="bg-gray-50 rounded-lg p-4">
-        {gameState.status === GAME_STATUS.VOTING ? (
+      {gameState.status !== GAME_STATUS.FINISHED && (
+        <div className="bg-gray-50 rounded-lg p-4">
+          {gameState.status === GAME_STATUS.VOTING ? (
           <div className="text-center text-gray-600">
             <p>🚨 Q&A paused during accusation voting</p>
           </div>
@@ -296,16 +297,13 @@ const GameBoard: React.FC<GameBoardProps> = ({
               </div>
             </div>
           </div>
-        ) : gameState.status === GAME_STATUS.FINISHED ? (
-          <div className="text-center text-gray-600">
-            <p>Game has ended</p>
-          </div>
         ) : (
           <div className="text-center text-gray-600">
             <p>It's <strong>{getPlayerName(gameState.currentTurn || '')}</strong>'s turn</p>
           </div>
         )}
       </div>
+      )}
 
       {/* Voting Section (shown during voting phases) */}
       {(gameState.status === GAME_STATUS.VOTING || gameState.status === GAME_STATUS.END_OF_ROUND_VOTING) && gameState.currentAccusation && (
