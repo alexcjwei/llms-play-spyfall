@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 import json
 import logging
 import uuid
+import asyncio
+import random
 from models import Game, Player, GameStatus
 
 # Load environment variables
@@ -106,6 +108,8 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                 await handle_give_answer(client_id, message)
             elif message_type == "vote":
                 await handle_vote(client_id, message)
+            elif message_type == "accuse_player":
+                await handle_accuse_player(client_id, message)
             else:
                 logger.warning(f"Unknown message type: {message_type}")
 
@@ -221,6 +225,9 @@ async def handle_start_game(client_id: str, message: dict):
         # Send updated game state to all players
         await manager.send_game_state(game_id)
 
+        # Check if it's now a bot's turn
+        await handle_bot_turn(game_id)
+
         # Send start confirmation
         response = {
             "type": "game_started",
@@ -249,6 +256,9 @@ async def handle_ask_question(client_id: str, message: dict):
         logger.info(f"Question asked: {client_id} -> {target_id}: {content}")
         # Send updated game state to all players
         await manager.send_game_state(game_id)
+
+        # Check if it's now a bot's turn
+        await handle_bot_turn(game_id)
     else:
         # Send error to the requesting player
         error_response = {
@@ -271,6 +281,9 @@ async def handle_give_answer(client_id: str, message: dict):
         logger.info(f"Answer given: {client_id}: {content}")
         # Send updated game state to all players
         await manager.send_game_state(game_id)
+
+        # Check if it's now a bot's turn
+        await handle_bot_turn(game_id)
     else:
         # Send error to the requesting player
         error_response = {
@@ -279,19 +292,154 @@ async def handle_give_answer(client_id: str, message: dict):
         }
         await manager.send_personal_message(json.dumps(error_response), client_id)
 
-async def handle_vote(client_id: str, message: dict):
-    # Placeholder for voting logic
+async def handle_bot_turn(game_id: str):
+    """Handle bot's turn - make them ask questions, give answers, or vote automatically"""
+    if game_id not in active_games:
+        logger.info(f"handle_bot_turn: Game {game_id} not found")
+        return
+
+    game = active_games[game_id]
+
+    # Handle bot voting during accusation phase
+    if game.status == GameStatus.VOTING and game.current_accusation:
+        await handle_bot_voting(game_id)
+        return
+
+    current_player = next((p for p in game.players if p.id == game.current_turn), None)
+
+    logger.info(f"handle_bot_turn: Game {game_id}, current turn: {game.current_turn}, current player: {current_player.name if current_player else 'None'}, is_bot: {current_player.is_bot if current_player else 'N/A'}")
+
+    # Only proceed if it's a bot's turn for Q&A
+    if not current_player or not current_player.is_bot:
+        logger.info(f"handle_bot_turn: Not a bot's turn, exiting")
+        return
+
+    # Add delay to simulate thinking
+    await asyncio.sleep(2)
+
+    # Check if bot needs to answer a question
+    last_message = game.messages[-1] if game.messages else None
+    logger.info(f"handle_bot_turn: Last message: {last_message.type if last_message else 'None'}, to_player: {last_message.to_player if last_message else 'None'}")
+
+    if last_message and last_message.type == "question" and last_message.to_player == current_player.id:
+        # Bot needs to answer
+        logger.info(f"handle_bot_turn: Bot {current_player.name} needs to answer")
+        if game.give_answer(current_player.id, "Answer"):
+            logger.info(f"Bot {current_player.name} gave an answer")
+            await manager.send_game_state(game_id)
+            # Check if bot can ask next question
+            await handle_bot_turn(game_id)
+    else:
+        # Bot needs to ask a question
+        logger.info(f"handle_bot_turn: Bot {current_player.name} needs to ask a question")
+        # Get available players (exclude self and the person who just asked this bot)
+        available_players = [p for p in game.players if p.id != current_player.id and p.id != game.last_questioned_by]
+        if available_players:
+            target = random.choice(available_players)  # Randomly choose from available players
+            logger.info(f"handle_bot_turn: Bot {current_player.name} asking {target.name}")
+            if game.ask_question(current_player.id, target.id, "Question"):
+                logger.info(f"Bot {current_player.name} asked a question to {target.name}")
+                await manager.send_game_state(game_id)
+                # Check if target is also a bot and needs to answer
+                await handle_bot_turn(game_id)
+            else:
+                logger.info(f"handle_bot_turn: Failed to ask question")
+        else:
+            logger.info(f"handle_bot_turn: No available players to ask (last_questioned_by={game.last_questioned_by})")
+
+async def handle_bot_voting(game_id: str):
+    """Handle bots voting on accusations with 50% chance each way"""
+    if game_id not in active_games:
+        return
+
+    game = active_games[game_id]
+
+    if not game.current_accusation or game.status != GameStatus.VOTING:
+        return
+
+    # Find bots who haven't voted yet
+    bots_to_vote = []
+    for player in game.players:
+        if (player.is_bot and
+            player.id != game.current_accusation.accused_id and  # Accused can't vote
+            player.id not in game.current_accusation.votes):     # Haven't voted yet
+            bots_to_vote.append(player)
+
+    # Make each bot vote with 50% chance
+    for bot in bots_to_vote:
+        # Add small delay between bot votes to make it feel more natural
+        await asyncio.sleep(1)
+
+        # 50% chance to vote guilty
+        vote = random.choice([True, False])
+
+        if game.vote_on_accusation(bot.id, vote):
+            logger.info(f"Bot {bot.name} voted {vote} on accusation in game {game_id}")
+
+            # Send updated game state after each vote
+            await manager.send_game_state(game_id)
+
+            # Check if voting is complete (this triggers resolution if all votes are in)
+            # The vote_on_accusation method handles resolution automatically
+
+async def handle_accuse_player(client_id: str, message: dict):
+    """Handle player making an accusation"""
     game_id = message.get("game_id")
-    target = message.get("target")
+    accused_id = message.get("target")
 
-    response = {
-        "type": "vote_cast",
-        "voter": client_id,
-        "target": target
-    }
+    if not game_id or game_id not in active_games:
+        error_response = {
+            "type": "accusation_error",
+            "message": "Game not found"
+        }
+        await manager.send_personal_message(json.dumps(error_response), client_id)
+        return
 
-    if game_id:
+    game = active_games[game_id]
+
+    # Make the accusation
+    if game.stop_clock_for_accusation(client_id, accused_id):
+        logger.info(f"Player {client_id} accused {accused_id} in game {game_id}")
+
+        # Send updated game state to all players (now in voting mode)
+        await manager.send_game_state(game_id)
+
+        # Notify all players about the accusation
+        accuser_name = next((p.name for p in game.players if p.id == client_id), "Unknown")
+        accused_name = next((p.name for p in game.players if p.id == accused_id), "Unknown")
+
+        response = {
+            "type": "accusation_made",
+            "accuser": accuser_name,
+            "accused": accused_name,
+            "game_id": game_id
+        }
         await manager.broadcast_to_game(json.dumps(response), game_id)
+    else:
+        error_response = {
+            "type": "accusation_error",
+            "message": "Cannot make accusation (game not in progress, already accused this round, or clock stopped)"
+        }
+        await manager.send_personal_message(json.dumps(error_response), client_id)
+
+async def handle_vote(client_id: str, message: dict):
+    """Handle voting on an accusation"""
+    game_id = message.get("game_id")
+    vote = message.get("vote")  # True for guilty, False for innocent
+
+    if not game_id or game_id not in active_games:
+        return
+
+    game = active_games[game_id]
+
+    if game.vote_on_accusation(client_id, vote):
+        logger.info(f"Player {client_id} voted {vote} in game {game_id}")
+
+        # Send updated game state to all players
+        await manager.send_game_state(game_id)
+
+        # Check if voting is complete and handle game end if needed
+        await handle_bot_turn(game_id)  # Bots should vote too
 
 async def handle_client_disconnect(client_id: str):
     """Handle client disconnection"""

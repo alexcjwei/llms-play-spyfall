@@ -11,12 +11,14 @@ export interface GameState {
   status: 'waiting' | 'in_progress' | 'voting' | 'finished';
   players: Player[];
   currentTurn?: string;
-  timeRemaining: number;
   location?: string;
   role?: string;
   isSpy: boolean;
   messages: Message[];
   clockStopped: boolean;
+  lastQuestionedBy?: string;
+  qaRoundsCompleted?: number;
+  maxQaRounds?: number;
   currentAccusation?: {
     accuser: string;
     accused: string;
@@ -37,7 +39,7 @@ export interface Message {
 
 
 export interface WebSocketMessage {
-  type: 'join_game' | 'start_game' | 'ask_question' | 'give_answer' | 'vote' | 'game_state' | 'join_success' | 'rejoin_success' | 'join_error' | 'start_error' | 'game_started' | 'player_left' | 'player_disconnected' | 'question_error' | 'answer_error';
+  type: 'join_game' | 'start_game' | 'ask_question' | 'give_answer' | 'vote' | 'accuse_player' | 'game_state' | 'join_success' | 'rejoin_success' | 'join_error' | 'start_error' | 'game_started' | 'player_left' | 'player_disconnected' | 'question_error' | 'answer_error' | 'accusation_made' | 'accusation_error';
   game_id?: string;
   player_name?: string;
   is_bot?: boolean;
@@ -49,4 +51,5 @@ export interface WebSocketMessage {
   player_id?: string;
   player_name_left?: string;
   timestamp?: number;
+  vote?: boolean;
 }

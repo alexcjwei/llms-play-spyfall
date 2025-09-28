@@ -92,12 +92,16 @@ const GameLobby: React.FC = () => {
 
   const joinExistingGame = () => {
     if (playerName && gameIdInput && isConnected && playerId) {
+      console.log('Attempting to join game:', gameIdInput, 'as player:', playerName);
       const message: WebSocketMessage = {
         type: 'join_game',
         game_id: gameIdInput,
         player_name: playerName
       };
+      console.log('Sending join message:', message);
       sendMessage(JSON.stringify(message));
+    } else {
+      console.log('Join conditions not met:', { playerName, gameIdInput, isConnected, playerId });
     }
   };
 
@@ -111,10 +115,6 @@ const GameLobby: React.FC = () => {
     }
   };
 
-  const leaveGame = () => {
-    setGameState(null);
-    setGameIdInput('');
-  };
 
   if (!gameState) {
     return (
@@ -214,12 +214,11 @@ const GameLobby: React.FC = () => {
         </button>
       )}
 
-      {gameState.status === 'in_progress' && (
+      {(gameState.status === 'in_progress' || gameState.status === 'voting') && (
         <GameBoard
           gameState={gameState}
           playerId={playerId}
           playerName={playerName}
-          onLeaveGame={leaveGame}
           onGameStateUpdate={setGameState}
         />
       )}
