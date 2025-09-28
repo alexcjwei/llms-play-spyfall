@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { GameState, WebSocketMessage, GAME_STATUS, MESSAGE_TYPES, GAME_CONSTANTS } from '../types';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { GameService } from '../services/gameService';

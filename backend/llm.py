@@ -73,11 +73,29 @@ class ClaudeClient:
                     logging.info(f"Prompt: {prompt}\nResult: {result['content'][0]['text']}")
                     return result["content"][0]["text"]
                 else:
-                    logger.error(f"Claude API error: {response.status_code} - {response.text}")
+                    error_details = {
+                        "status_code": response.status_code,
+                        "response_text": response.text,
+                        "headers": dict(response.headers),
+                        "url": str(response.url)
+                    }
+                    logger.error(f"Claude API HTTP error: {error_details}")
                     return None
 
+        except httpx.TimeoutException as e:
+            logger.error(f"Claude API timeout after 30s: {e}")
+            return None
+        except httpx.RequestError as e:
+            logger.error(f"Claude API request error (network/connection): {e}")
+            return None
+        except json.JSONDecodeError as e:
+            logger.error(f"Claude API returned invalid JSON: {e}")
+            return None
+        except KeyError as e:
+            logger.error(f"Claude API response missing expected field: {e}")
+            return None
         except Exception as e:
-            logger.error(f"Error calling Claude API: {e}")
+            logger.error(f"Unexpected error calling Claude API: {type(e).__name__}: {e}")
             return None
 
     async def get_json_completion(
@@ -136,7 +154,8 @@ class ClaudeClient:
             return json.loads(json_str)
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON from Claude response: {e}")
-            logger.error(f"Raw response: {completion}")
+            logger.error(f"Raw response (first 500 chars): {completion[:500]}")
+            logger.error(f"Response length: {len(completion) if completion else 'None'}")
             return None
 
     async def generate_question(
@@ -168,14 +187,14 @@ class ClaudeClient:
                 if target_id in available_target_ids:
                     return target_id, question
                 else:
-                    logger.warning(f"Bot selected invalid target {target_id}, not in {available_target_ids}")
+                    logger.warning(f"Bot question generation: Invalid target selected. Bot chose '{target_id}' but available targets are {available_target_ids}")
                     return None
 
-            logger.warning(f"Invalid question response format: {response}")
+            logger.warning(f"Bot question generation: Invalid response format. Expected {{target_id, question}} but got: {response}")
             return None
 
         except Exception as e:
-            logger.error(f"Error generating question: {e}")
+            logger.error(f"Bot question generation: Unexpected error for bot {bot_player_id}: {type(e).__name__}: {e}")
             return None
 
     async def generate_answer(
@@ -204,11 +223,11 @@ class ClaudeClient:
             if response and "answer" in response:
                 return response["answer"]
 
-            logger.warning(f"Invalid answer response format: {response}")
+            logger.warning(f"Bot answer generation: Invalid response format. Expected {{answer}} but got: {response}")
             return None
 
         except Exception as e:
-            logger.error(f"Error generating answer: {e}")
+            logger.error(f"Bot answer generation: Unexpected error for bot {bot_player_id} answering '{question}': {type(e).__name__}: {e}")
             return None
 
     async def should_make_accusation(
@@ -243,14 +262,14 @@ class ClaudeClient:
                 elif not should_accuse:
                     return False, "", reasoning
                 else:
-                    logger.warning(f"Bot wants to accuse invalid target {target_id}")
+                    logger.warning(f"Bot accusation decision: Invalid target selected. Bot chose '{target_id}' but available targets are {potential_target_ids}")
                     return False, "", "Invalid target selected"
 
-            logger.warning(f"Invalid accusation response format: {response}")
+            logger.warning(f"Bot accusation decision: Invalid response format. Expected {{should_accuse, target_id, reasoning}} but got: {response}")
             return None
 
         except Exception as e:
-            logger.error(f"Error determining accusation: {e}")
+            logger.error(f"Bot accusation decision: Unexpected error for bot {bot_player_id}: {type(e).__name__}: {e}")
             return None
 
     async def should_vote_guilty(
@@ -283,14 +302,14 @@ class ClaudeClient:
                 if isinstance(vote_guilty, bool):
                     return vote_guilty, reasoning
                 else:
-                    logger.warning(f"Invalid vote_guilty type: {type(vote_guilty)}")
+                    logger.warning(f"Bot voting decision: Invalid vote_guilty type. Expected boolean but got {type(vote_guilty)}: {vote_guilty}")
                     return None
 
-            logger.warning(f"Invalid voting response format: {response}")
+            logger.warning(f"Bot voting decision: Invalid response format. Expected {{vote_guilty, reasoning}} but got: {response}")
             return None
 
         except Exception as e:
-            logger.error(f"Error determining vote: {e}")
+            logger.error(f"Bot voting decision: Unexpected error for bot {bot_player_id} voting on {accused_name}: {type(e).__name__}: {e}")
             return None
 
 

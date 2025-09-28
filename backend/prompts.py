@@ -125,7 +125,7 @@ def build_answer_prompt(
 
 {qa_history}{questioner_name} asked you: "{question}"
 
-Give a natural, believable answer. If you're the spy, be careful not to reveal your ignorance. If you know the location, answer in a way that makes sense for your role.
+If you're the spy, be careful not to reveal your ignorance. If you know the location, answer in a way that makes sense for your role without revealing it to the spy.
 
 IMPORTANT: Respond with ONLY valid JSON, no additional text or explanation:
 
