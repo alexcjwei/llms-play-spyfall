@@ -7,7 +7,7 @@ import logging
 from typing import Optional, Dict, Any, List, Tuple
 import httpx
 from dotenv import load_dotenv
-from prompts import build_question_prompt, build_answer_prompt, build_accusation_prompt
+from prompts import build_question_prompt, build_answer_prompt, build_accusation_prompt, build_voting_prompt
 
 # Load environment variables
 load_dotenv()
@@ -70,6 +70,7 @@ class ClaudeClient:
 
                 if response.status_code == 200:
                     result = response.json()
+                    logging.info(f"Prompt: {prompt}\nResult: {result['content'][0]['text']}")
                     return result["content"][0]["text"]
                 else:
                     logger.error(f"Claude API error: {response.status_code} - {response.text}")
@@ -250,6 +251,46 @@ class ClaudeClient:
 
         except Exception as e:
             logger.error(f"Error determining accusation: {e}")
+            return None
+
+    async def should_vote_guilty(
+        self,
+        game_state: Dict[str, Any],
+        bot_player_id: str,
+        accused_id: str,
+        accused_name: str
+    ) -> Optional[Tuple[bool, str]]:
+        """
+        Determine if bot should vote guilty on an accusation
+
+        Args:
+            game_state: Current game state
+            bot_player_id: ID of the bot player voting
+            accused_id: ID of the player being accused
+            accused_name: Name of the player being accused
+
+        Returns:
+            Tuple of (vote_guilty, reasoning) or None if error
+        """
+        try:
+            prompt = build_voting_prompt(game_state, bot_player_id, accused_id, accused_name)
+            response = await self.get_json_completion(prompt, max_tokens=512, temperature=0.6)
+
+            if response and "vote_guilty" in response:
+                vote_guilty = response["vote_guilty"]
+                reasoning = response.get("reasoning", "")
+
+                if isinstance(vote_guilty, bool):
+                    return vote_guilty, reasoning
+                else:
+                    logger.warning(f"Invalid vote_guilty type: {type(vote_guilty)}")
+                    return None
+
+            logger.warning(f"Invalid voting response format: {response}")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error determining vote: {e}")
             return None
 
 

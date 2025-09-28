@@ -58,3 +58,29 @@ class TestClaudeIntegration:
         assert isinstance(question, str)
         # Spy questions should be more general/fishing for information
         assert len(question) > 0
+
+    @pytest.mark.asyncio
+    async def test_voting_decision_integration(self, mock_voting_game_state):
+        """Test actual voting decision generation with Claude"""
+        result = await claude_client.should_vote_guilty(
+            mock_voting_game_state, "bot2", "bot3", "Carol"
+        )
+
+        assert result is not None
+        should_vote_guilty, reasoning = result
+        assert isinstance(should_vote_guilty, bool)
+        assert isinstance(reasoning, str)
+        assert len(reasoning) > 0
+
+    @pytest.mark.asyncio
+    async def test_spy_voting_decision_integration(self, mock_spy_voting_game_state):
+        """Test voting decision when bot is the spy"""
+        result = await claude_client.should_vote_guilty(
+            mock_spy_voting_game_state, "bot1", "bot2", "Bob"
+        )
+
+        assert result is not None
+        should_vote_guilty, reasoning = result
+        assert isinstance(should_vote_guilty, bool)
+        assert isinstance(reasoning, str)
+        assert len(reasoning) > 0

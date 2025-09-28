@@ -568,13 +568,25 @@ async def handle_bot_voting(game_id: str):
         ):  # Haven't voted yet
             bots_to_vote.append(player)
 
-    # Make each bot vote with 50% chance
+    # Make each bot vote using LLM decision
     for bot in bots_to_vote:
         # Add small delay between bot votes to make it feel more natural
         await asyncio.sleep(1)
 
-        # 50% chance to vote guilty
-        vote = random.choice([True, False])
+        # Get LLM-based voting decision
+        accused_player = next((p for p in game.players if p.id == game.current_accusation.accused_id), None)
+        accused_name = accused_player.name if accused_player else "Unknown"
+        vote_decision = await claude_client.should_vote_guilty(
+            game.to_player_dict(bot.id), bot.id, game.current_accusation.accused_id, accused_name
+        )
+
+        if vote_decision:
+            vote, reasoning = vote_decision
+            logger.info(f"Bot {bot.name} voting decision: {vote} - {reasoning}")
+        else:
+            # Fallback to random if LLM fails
+            vote = random.choice([True, False])
+            logger.warning(f"Bot {bot.name} using fallback random vote: {vote}")
 
         if game.vote_on_accusation(bot.id, vote):
             logger.info(f"Bot {bot.name} voted {vote} on accusation in game {game_id}")
@@ -776,13 +788,25 @@ async def handle_end_of_round_bot_voting(game_id: str):
         ):  # Haven't voted yet
             bots_to_vote.append(player)
 
-    # Make each bot vote with 50% chance
+    # Make each bot vote using LLM decision
     for bot in bots_to_vote:
         # Add small delay between bot votes
         await asyncio.sleep(1)
 
-        # 50% chance to vote guilty
-        vote = random.choice([True, False])
+        # Get LLM-based voting decision
+        accused_player = next((p for p in game.players if p.id == game.current_accusation.accused_id), None)
+        accused_name = accused_player.name if accused_player else "Unknown"
+        vote_decision = await claude_client.should_vote_guilty(
+            game.to_player_dict(bot.id), bot.id, game.current_accusation.accused_id, accused_name
+        )
+
+        if vote_decision:
+            vote, reasoning = vote_decision
+            logger.info(f"End-of-round bot {bot.name} voting decision: {vote} - {reasoning}")
+        else:
+            # Fallback to random if LLM fails
+            vote = random.choice([True, False])
+            logger.warning(f"End-of-round bot {bot.name} using fallback random vote: {vote}")
 
         if game.vote_on_end_of_round_accusation(bot.id, vote):
             logger.info(

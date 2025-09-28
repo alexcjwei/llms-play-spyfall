@@ -199,3 +199,71 @@ Respond with JSON:
 {{"should_accuse": true/false, "target_id": "player_id or null", "reasoning": "brief explanation"}}"""
 
     return prompt
+
+
+def build_voting_prompt(
+    game_state: Dict[str, Any],
+    bot_player_id: str,
+    accused_id: str,
+    accused_name: str
+) -> str:
+    """
+    Build prompt for deciding how to vote on an accusation
+
+    Args:
+        game_state: Current game state
+        bot_player_id: ID of the bot player voting
+        accused_id: ID of the player being accused
+        accused_name: Name of the player being accused
+
+    Returns:
+        Formatted prompt string
+    """
+    bot_player = next((p for p in game_state["players"] if p["id"] == bot_player_id), None)
+    if not bot_player:
+        raise ValueError(f"Bot player {bot_player_id} not found in game state")
+
+    bot_name = bot_player["name"]
+    is_spy = game_state.get("isSpy", False)
+    location = game_state.get("location", "Unknown")
+    role = game_state.get("role", "Unknown")
+
+    # Get accusation details
+    accusation = game_state.get("currentAccusation", {})
+    accuser_id = accusation.get("accuserId", "")
+    accuser = next((p for p in game_state["players"] if p["id"] == accuser_id), None)
+    accuser_name = accuser["name"] if accuser else "Unknown"
+
+    # Get all Q&A history for context
+    messages = game_state.get("messages", [])
+    qa_history = ""
+    if messages:
+        qa_history = "Q&A History:\n"
+        for msg in messages:
+            from_name = next((p["name"] for p in game_state["players"] if p["id"] == msg["from"]), msg["from"])
+            to_name = next((p["name"] for p in game_state["players"] if p["id"] == msg.get("to", "")), msg.get("to", "all"))
+            qa_history += f"- {from_name} → {to_name}: {msg['content']}\n"
+
+    role_context = ""
+    if is_spy:
+        role_context = "You are the SPY. You don't know the location. Vote strategically to deflect suspicion or eliminate threats."
+    else:
+        role_context = f"You know the location is '{location}' and your role is '{role}'. Vote based on who seems most likely to be the spy."
+
+    prompt = f"""You are {bot_name} playing Spyfall. {role_context}
+
+{qa_history}
+
+{accuser_name} has accused {accused_name} of being the spy. You must vote GUILTY (they are the spy) or INNOCENT (they are not the spy).
+
+Consider all players' behavior in the Q&A history:
+- Who gave vague or evasive answers?
+- Who asked fishing questions to learn the location?
+- Who seemed unfamiliar with the location?
+- Who behaved most suspiciously overall?
+
+IMPORTANT: Respond with ONLY valid JSON, no additional text or explanation:
+
+{{"vote_guilty": true/false, "reasoning": "brief explanation of your decision"}}"""
+
+    return prompt
