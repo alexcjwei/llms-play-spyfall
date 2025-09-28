@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { GameState, WebSocketMessage } from '../types';
 import { useWebSocket } from '../hooks/useWebSocket';
+import GameBoard from './GameBoard';
 
 const GameLobby: React.FC = () => {
   const [gameState, setGameState] = useState<GameState | null>(null);
@@ -39,7 +40,15 @@ const GameLobby: React.FC = () => {
         } as GameState));
         break;
       case 'game_started':
-        setGameState(prev => prev ? { ...prev, status: 'in_progress' } : null);
+        // Add sample game data for testing
+        setGameState(prev => prev ? {
+          ...prev,
+          status: 'in_progress',
+          currentTurn: playerName,
+          location: 'Airplane',
+          role: 'Pilot',
+          isSpy: Math.random() < 0.2 // 20% chance to be spy for testing
+        } : null);
         break;
       case 'player_left':
         setGameState(prev => prev ? {
@@ -70,6 +79,10 @@ const GameLobby: React.FC = () => {
       };
       sendMessage(JSON.stringify(message));
     }
+  };
+
+  const leaveGame = () => {
+    setGameState(null);
   };
 
   if (!gameState) {
@@ -149,10 +162,11 @@ const GameLobby: React.FC = () => {
       )}
 
       {gameState.status === 'in_progress' && (
-        <div className="text-center">
-          <p className="text-lg text-gray-600">Game in progress...</p>
-          <p className="text-sm text-gray-500 mt-2">Game components will be implemented next</p>
-        </div>
+        <GameBoard
+          gameState={gameState}
+          playerName={playerName}
+          onLeaveGame={leaveGame}
+        />
       )}
     </div>
   );
