@@ -4,11 +4,12 @@ export interface Player {
   isBot: boolean;
   isConnected: boolean;
   points?: number;
+  hasAccusedThisRound?: boolean;
 }
 
 export interface GameState {
   id: string;
-  status: 'waiting' | 'in_progress' | 'voting' | 'finished';
+  status: 'waiting' | 'in_progress' | 'voting' | 'end_of_round_voting' | 'finished';
   players: Player[];
   currentTurn?: string;
   location?: string;
@@ -39,7 +40,7 @@ export interface Message {
 
 
 export interface WebSocketMessage {
-  type: 'join_game' | 'start_game' | 'ask_question' | 'give_answer' | 'vote' | 'accuse_player' | 'game_state' | 'join_success' | 'rejoin_success' | 'join_error' | 'start_error' | 'game_started' | 'player_left' | 'player_disconnected' | 'question_error' | 'answer_error' | 'accusation_made' | 'accusation_error';
+  type: 'join_game' | 'start_game' | 'ask_question' | 'give_answer' | 'vote' | 'accuse_player' | 'game_state' | 'join_success' | 'rejoin_success' | 'join_error' | 'start_error' | 'game_started' | 'player_left' | 'player_disconnected' | 'question_error' | 'answer_error' | 'accusation_made' | 'accusation_error' | 'end_of_round_accusation_made';
   game_id?: string;
   player_name?: string;
   is_bot?: boolean;

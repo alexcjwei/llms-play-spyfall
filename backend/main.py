@@ -31,6 +31,22 @@ app.add_middleware(
 # In-memory storage for game state
 active_games: dict[str, Game] = {}
 connected_clients = {}
+pending_tasks: dict[str, asyncio.Task] = {}  # game_id -> pending async task
+
+def cancel_pending_task(game_id: str):
+    """Cancel any pending task for the given game."""
+    if game_id in pending_tasks:
+        task = pending_tasks[game_id]
+        if not task.done():
+            task.cancel()
+        del pending_tasks[game_id]
+        logger.info(f"Cancelled pending task for game {game_id}")
+
+def schedule_task(game_id: str, task: asyncio.Task):
+    """Schedule a new task for the given game, cancelling any existing task."""
+    cancel_pending_task(game_id)  # Cancel existing task first
+    pending_tasks[game_id] = task
+    logger.info(f"Scheduled new task for game {game_id}")
 
 class ConnectionManager:
     def __init__(self):
@@ -225,8 +241,8 @@ async def handle_start_game(client_id: str, message: dict):
         # Send updated game state to all players
         await manager.send_game_state(game_id)
 
-        # Check if it's now a bot's turn
-        await handle_bot_turn(game_id)
+        # Check if it's now a bot's turn - schedule with slight delay
+        schedule_next_bot_action(game_id, delay=1)
 
         # Send start confirmation
         response = {
@@ -257,8 +273,8 @@ async def handle_ask_question(client_id: str, message: dict):
         # Send updated game state to all players
         await manager.send_game_state(game_id)
 
-        # Check if it's now a bot's turn
-        await handle_bot_turn(game_id)
+        # Check if it's now a bot's turn - schedule with slight delay
+        schedule_next_bot_action(game_id, delay=1)
     else:
         # Send error to the requesting player
         error_response = {
@@ -282,8 +298,8 @@ async def handle_give_answer(client_id: str, message: dict):
         # Send updated game state to all players
         await manager.send_game_state(game_id)
 
-        # Check if it's now a bot's turn
-        await handle_bot_turn(game_id)
+        # Check if it's now a bot's turn - schedule with slight delay
+        schedule_next_bot_action(game_id, delay=1)
     else:
         # Send error to the requesting player
         error_response = {
@@ -292,60 +308,150 @@ async def handle_give_answer(client_id: str, message: dict):
         }
         await manager.send_personal_message(json.dumps(error_response), client_id)
 
-async def handle_bot_turn(game_id: str):
-    """Handle bot's turn - make them ask questions, give answers, or vote automatically"""
+async def delayed_bot_turn(game_id: str, delay: int = 2):
+    """Delayed bot turn handling with state checking."""
+    await asyncio.sleep(delay)
+
+    # Check if game state still allows bot actions
     if game_id not in active_games:
-        logger.info(f"handle_bot_turn: Game {game_id} not found")
+        logger.info(f"delayed_bot_turn: Game {game_id} not found after delay")
         return
 
     game = active_games[game_id]
 
-    # Handle bot voting during accusation phase
-    if game.status == GameStatus.VOTING and game.current_accusation:
+    # Only proceed if game allows bot actions
+    if game.status not in [GameStatus.IN_PROGRESS, GameStatus.VOTING, GameStatus.END_OF_ROUND_VOTING]:
+        logger.info(f"delayed_bot_turn: Game {game_id} not in valid state for bot actions (status: {game.status})")
+        return
+
+    # For IN_PROGRESS games, don't act if clock is stopped (voting states expect clock to be stopped)
+    if game.status == GameStatus.IN_PROGRESS and game.clock_stopped:
+        logger.info(f"delayed_bot_turn: Game {game_id} clock stopped during IN_PROGRESS")
+        return
+
+    await handle_bot_turn_immediate(game_id)
+
+async def delayed_bot_voting(game_id: str, delay: int = 0):
+    """Delayed bot voting action with state checking."""
+    if delay > 0:
+        await asyncio.sleep(delay)
+
+    # Check if game state still allows voting
+    if game_id not in active_games:
+        return
+
+    game = active_games[game_id]
+    if not game.current_accusation:
+        return
+
+    # Handle both regular voting and end-of-round voting
+    if game.status == GameStatus.VOTING:
         await handle_bot_voting(game_id)
+    elif game.status == GameStatus.END_OF_ROUND_VOTING:
+        await handle_end_of_round_bot_voting(game_id)
+    else:
+        return  # Wrong state for voting
+
+async def delayed_bot_end_of_round_voting(game_id: str, delay: int = 0):
+    """Delayed bot end-of-round voting action with state checking."""
+    if delay > 0:
+        await asyncio.sleep(delay)
+
+    # Check if game state still allows end-of-round voting
+    if game_id not in active_games:
+        return
+
+    game = active_games[game_id]
+    if game.status != GameStatus.END_OF_ROUND_VOTING:
+        return
+
+    await handle_end_of_round_bot_voting(game_id)
+
+async def delayed_bot_end_of_round_accusation(game_id: str, delay: int = 0):
+    """Delayed bot end-of-round accusation action with state checking."""
+    if delay > 0:
+        await asyncio.sleep(delay)
+
+    # Check if game state still allows end-of-round accusations
+    if game_id not in active_games:
+        return
+
+    game = active_games[game_id]
+    if game.status != GameStatus.END_OF_ROUND_VOTING:
+        return
+
+    await handle_bot_end_of_round_accusation(game_id)
+
+async def handle_bot_turn_immediate(game_id: str):
+    """Handle bot's turn immediately without delay - core bot logic."""
+    if game_id not in active_games:
+        logger.info(f"handle_bot_turn_immediate: Game {game_id} not found")
+        return
+
+    game = active_games[game_id]
+
+    # Handle voting states
+    if game.status == GameStatus.VOTING:
+        task = asyncio.create_task(delayed_bot_voting(game_id))
+        schedule_task(game_id, task)
+        return
+    elif game.status == GameStatus.END_OF_ROUND_VOTING:
+        task = asyncio.create_task(delayed_bot_end_of_round_accusation(game_id))
+        schedule_task(game_id, task)
+        return
+
+    # Don't handle bot actions if game is not in progress or clock is stopped
+    if game.status != GameStatus.IN_PROGRESS or game.clock_stopped:
+        logger.info(f"handle_bot_turn_immediate: Game {game_id} not in progress (status: {game.status}, clock_stopped: {game.clock_stopped})")
         return
 
     current_player = next((p for p in game.players if p.id == game.current_turn), None)
 
-    logger.info(f"handle_bot_turn: Game {game_id}, current turn: {game.current_turn}, current player: {current_player.name if current_player else 'None'}, is_bot: {current_player.is_bot if current_player else 'N/A'}")
+    logger.info(f"handle_bot_turn_immediate: Game {game_id}, current turn: {game.current_turn}, current player: {current_player.name if current_player else 'None'}, is_bot: {current_player.is_bot if current_player else 'N/A'}")
 
     # Only proceed if it's a bot's turn for Q&A
     if not current_player or not current_player.is_bot:
-        logger.info(f"handle_bot_turn: Not a bot's turn, exiting")
+        logger.info(f"handle_bot_turn_immediate: Not a bot's turn, exiting")
         return
-
-    # Add delay to simulate thinking
-    await asyncio.sleep(2)
 
     # Check if bot needs to answer a question
     last_message = game.messages[-1] if game.messages else None
-    logger.info(f"handle_bot_turn: Last message: {last_message.type if last_message else 'None'}, to_player: {last_message.to_player if last_message else 'None'}")
+    logger.info(f"handle_bot_turn_immediate: Last message: {last_message.type if last_message else 'None'}, to_player: {last_message.to_player if last_message else 'None'}")
 
     if last_message and last_message.type == "question" and last_message.to_player == current_player.id:
         # Bot needs to answer
-        logger.info(f"handle_bot_turn: Bot {current_player.name} needs to answer")
+        logger.info(f"handle_bot_turn_immediate: Bot {current_player.name} needs to answer")
         if game.give_answer(current_player.id, "Answer"):
             logger.info(f"Bot {current_player.name} gave an answer")
             await manager.send_game_state(game_id)
-            # Check if bot can ask next question
-            await handle_bot_turn(game_id)
+            # Schedule next bot action instead of immediate recursion
+            schedule_next_bot_action(game_id)
     else:
         # Bot needs to ask a question
-        logger.info(f"handle_bot_turn: Bot {current_player.name} needs to ask a question")
+        logger.info(f"handle_bot_turn_immediate: Bot {current_player.name} needs to ask a question")
         # Get available players (exclude self and the person who just asked this bot)
         available_players = [p for p in game.players if p.id != current_player.id and p.id != game.last_questioned_by]
         if available_players:
             target = random.choice(available_players)  # Randomly choose from available players
-            logger.info(f"handle_bot_turn: Bot {current_player.name} asking {target.name}")
+            logger.info(f"handle_bot_turn_immediate: Bot {current_player.name} asking {target.name}")
             if game.ask_question(current_player.id, target.id, "Question"):
                 logger.info(f"Bot {current_player.name} asked a question to {target.name}")
                 await manager.send_game_state(game_id)
-                # Check if target is also a bot and needs to answer
-                await handle_bot_turn(game_id)
+                # Schedule next bot action instead of immediate recursion
+                schedule_next_bot_action(game_id)
             else:
-                logger.info(f"handle_bot_turn: Failed to ask question")
+                logger.info(f"handle_bot_turn_immediate: Failed to ask question")
         else:
-            logger.info(f"handle_bot_turn: No available players to ask (last_questioned_by={game.last_questioned_by})")
+            logger.info(f"handle_bot_turn_immediate: No available players to ask (last_questioned_by={game.last_questioned_by})")
+
+def schedule_next_bot_action(game_id: str, delay: int = 2):
+    """Schedule the next bot action with a delay."""
+    task = asyncio.create_task(delayed_bot_turn(game_id, delay))
+    schedule_task(game_id, task)
+
+async def handle_bot_turn(game_id: str):
+    """Handle bot's turn - use immediate version for backwards compatibility."""
+    await handle_bot_turn_immediate(game_id)
 
 async def handle_bot_voting(game_id: str):
     """Handle bots voting on accusations with 50% chance each way"""
@@ -397,11 +503,23 @@ async def handle_accuse_player(client_id: str, message: dict):
 
     game = active_games[game_id]
 
-    # Make the accusation
-    if game.stop_clock_for_accusation(client_id, accused_id):
-        logger.info(f"Player {client_id} accused {accused_id} in game {game_id}")
+    # Use appropriate accusation method based on game status
+    if game.status == GameStatus.END_OF_ROUND_VOTING:
+        success = game.make_end_of_round_accusation(client_id, accused_id)
+        accusation_type = "end-of-round"
+        response_type = "end_of_round_accusation_made"
+    else:
+        success = game.stop_clock_for_accusation(client_id, accused_id)
+        accusation_type = "mid-game"
+        response_type = "accusation_made"
 
-        # Send updated game state to all players (now in voting mode)
+    if success:
+        logger.info(f"Player {client_id} made {accusation_type} accusation against {accused_id} in game {game_id}")
+
+        # Cancel any pending bot actions - accusation interrupts everything
+        cancel_pending_task(game_id)
+
+        # Send updated game state to all players
         await manager.send_game_state(game_id)
 
         # Notify all players about the accusation
@@ -409,12 +527,16 @@ async def handle_accuse_player(client_id: str, message: dict):
         accused_name = next((p.name for p in game.players if p.id == accused_id), "Unknown")
 
         response = {
-            "type": "accusation_made",
+            "type": response_type,
             "accuser": accuser_name,
             "accused": accused_name,
             "game_id": game_id
         }
         await manager.broadcast_to_game(json.dumps(response), game_id)
+
+        # Schedule bot actions based on game state
+        task = asyncio.create_task(delayed_bot_turn(game_id, delay=0))
+        schedule_task(game_id, task)
     else:
         error_response = {
             "type": "accusation_error",
@@ -432,14 +554,125 @@ async def handle_vote(client_id: str, message: dict):
 
     game = active_games[game_id]
 
-    if game.vote_on_accusation(client_id, vote):
-        logger.info(f"Player {client_id} voted {vote} in game {game_id}")
+    # Use appropriate voting method based on game status
+    if game.status == GameStatus.END_OF_ROUND_VOTING:
+        success = game.vote_on_end_of_round_accusation(client_id, vote)
+        vote_type = "end-of-round"
+    else:
+        success = game.vote_on_accusation(client_id, vote)
+        vote_type = "mid-game"
+
+    if success:
+        logger.info(f"Player {client_id} voted {vote} in {vote_type} voting in game {game_id}")
 
         # Send updated game state to all players
         await manager.send_game_state(game_id)
 
-        # Check if voting is complete and handle game end if needed
-        await handle_bot_turn(game_id)  # Bots should vote too
+        # Schedule bot actions (voting or accusations) based on game status
+        task = asyncio.create_task(delayed_bot_turn(game_id, delay=0))
+        schedule_task(game_id, task)
+
+async def handle_bot_end_of_round_accusation(game_id: str):
+    """Handle bot making end-of-round accusation when it's their turn"""
+    if game_id not in active_games:
+        logger.info(f"handle_bot_end_of_round_accusation: Game {game_id} not found")
+        return
+
+    game = active_games[game_id]
+
+    if game.status != GameStatus.END_OF_ROUND_VOTING:
+        logger.info(f"handle_bot_end_of_round_accusation: Game {game_id} not in END_OF_ROUND_VOTING status (current: {game.status})")
+        return
+
+    # If there's already an accusation, bots should vote (regardless of whose turn it is)
+    if game.current_accusation:
+        logger.info(f"handle_bot_end_of_round_accusation: Current accusation exists, handling voting instead")
+        task = asyncio.create_task(delayed_bot_end_of_round_voting(game_id))
+        schedule_task(game_id, task)
+        return
+
+    # No active accusation - check if it's a bot's turn to make an accusation
+    current_player = next((p for p in game.players if p.id == game.current_turn), None)
+    logger.info(f"handle_bot_end_of_round_accusation: Game {game_id}, current turn: {game.current_turn}, current player: {current_player.name if current_player else 'None'}, is_bot: {current_player.is_bot if current_player else 'N/A'}, has_accused: {current_player.has_accused_this_round if current_player else 'N/A'}")
+
+    # Only proceed if it's a bot's turn
+    if not current_player or not current_player.is_bot:
+        logger.info(f"handle_bot_end_of_round_accusation: Not a bot's turn, exiting")
+        return
+
+    # Check if bot has already accused this round
+    if current_player.has_accused_this_round:
+        logger.info(f"handle_bot_end_of_round_accusation: Bot {current_player.name} has already accused this round")
+        return
+
+    # Add delay to simulate thinking
+    await asyncio.sleep(2)
+
+    # Bot makes a random accusation (excluding themselves)
+    potential_targets = [p for p in game.players if p.id != current_player.id]
+    if potential_targets:
+        target = random.choice(potential_targets)
+
+        logger.info(f"Bot {current_player.name} making end-of-round accusation against {target.name}")
+
+        if game.make_end_of_round_accusation(current_player.id, target.id):
+            # Send updated game state
+            await manager.send_game_state(game_id)
+
+            # Notify players
+            response = {
+                "type": "end_of_round_accusation_made",
+                "accuser": current_player.name,
+                "accused": target.name,
+                "game_id": game_id
+            }
+            await manager.broadcast_to_game(json.dumps(response), game_id)
+
+            # Schedule bot voting on this accusation
+            task = asyncio.create_task(delayed_bot_turn(game_id, delay=0))
+            schedule_task(game_id, task)
+        else:
+            logger.info(f"handle_bot_end_of_round_accusation: Failed to make accusation for bot {current_player.name}")
+    else:
+        logger.info(f"handle_bot_end_of_round_accusation: No potential targets for bot {current_player.name}")
+
+async def handle_end_of_round_bot_voting(game_id: str):
+    """Handle bots voting on end-of-round accusations"""
+    if game_id not in active_games:
+        return
+
+    game = active_games[game_id]
+
+    if not game.current_accusation or game.status != GameStatus.END_OF_ROUND_VOTING:
+        return
+
+    # Find bots who haven't voted yet
+    bots_to_vote = []
+    for player in game.players:
+        if (player.is_bot and
+            player.id != game.current_accusation.accused_id and  # Accused can't vote
+            player.id not in game.current_accusation.votes):     # Haven't voted yet
+            bots_to_vote.append(player)
+
+    # Make each bot vote with 50% chance
+    for bot in bots_to_vote:
+        # Add small delay between bot votes
+        await asyncio.sleep(1)
+
+        # 50% chance to vote guilty
+        vote = random.choice([True, False])
+
+        if game.vote_on_end_of_round_accusation(bot.id, vote):
+            logger.info(f"End-of-round bot vote: {bot.name} voted {vote} in game {game_id}")
+
+            # Send updated game state after each vote
+            await manager.send_game_state(game_id)
+
+            # If vote resolution moved to next accuser, schedule bot logic
+            if game.status == GameStatus.END_OF_ROUND_VOTING and not game.current_accusation:
+                logger.info(f"Vote resolution complete, scheduling bot logic for next accuser")
+                task = asyncio.create_task(delayed_bot_turn(game_id, delay=0))
+                schedule_task(game_id, task)
 
 async def handle_client_disconnect(client_id: str):
     """Handle client disconnection"""

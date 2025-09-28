@@ -214,7 +214,7 @@ const GameLobby: React.FC = () => {
         </button>
       )}
 
-      {(gameState.status === 'in_progress' || gameState.status === 'voting') && (
+      {(gameState.status === 'in_progress' || gameState.status === 'voting' || gameState.status === 'end_of_round_voting' || gameState.status === 'finished') && (
         <GameBoard
           gameState={gameState}
           playerId={playerId}
