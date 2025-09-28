@@ -7,8 +7,8 @@ import os
 from unittest.mock import Mock, AsyncMock
 from dotenv import load_dotenv
 
-# Load environment variables from .env.local
-load_dotenv('.env.local')
+# Load environment variables (dotenv will find the right .env file)
+load_dotenv()
 
 
 @pytest.fixture

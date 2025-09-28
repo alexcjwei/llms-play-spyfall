@@ -9,6 +9,7 @@ import uuid
 import asyncio
 import random
 from models import Game, Player, GameStatus
+from llm import claude_client
 
 # Load environment variables
 load_dotenv()
@@ -410,26 +411,77 @@ async def handle_bot_turn_immediate(game_id: str):
     if last_message and last_message.type == "question" and last_message.to_player == current_player.id:
         # Bot needs to answer
         logger.info(f"handle_bot_turn_immediate: Bot {current_player.name} needs to answer")
-        if game.give_answer(current_player.id, "Answer"):
-            logger.info(f"Bot {current_player.name} gave an answer")
-            await manager.send_game_state(game_id)
-            # Schedule next bot action instead of immediate recursion
-            schedule_next_bot_action(game_id)
+
+        # Use Claude API to generate answer
+        game_state_dict = game.to_player_dict(current_player.id)
+        question = last_message.content
+        questioner_id = last_message.from_player
+
+        try:
+            answer = await claude_client.generate_answer(game_state_dict, current_player.id, question, questioner_id)
+            if answer:
+                logger.info(f"handle_bot_turn_immediate: Claude generated answer for {current_player.name}: {answer}")
+                if game.give_answer(current_player.id, answer):
+                    logger.info(f"Bot {current_player.name} gave Claude-generated answer")
+                    await manager.send_game_state(game_id)
+                    schedule_next_bot_action(game_id)
+                else:
+                    logger.info(f"handle_bot_turn_immediate: Failed to give Claude-generated answer")
+            else:
+                # Fallback to generic answer if Claude fails
+                logger.warning(f"Claude failed to generate answer, using fallback")
+                fallback_answer = "I think it's interesting here."
+                if game.give_answer(current_player.id, fallback_answer):
+                    logger.info(f"Bot {current_player.name} gave fallback answer")
+                    await manager.send_game_state(game_id)
+                    schedule_next_bot_action(game_id)
+        except Exception as e:
+            logger.error(f"Error generating answer with Claude: {e}")
+            # Fallback to generic answer
+            fallback_answer = "I think it's interesting here."
+            if game.give_answer(current_player.id, fallback_answer):
+                logger.info(f"Bot {current_player.name} gave fallback answer")
+                await manager.send_game_state(game_id)
+                schedule_next_bot_action(game_id)
     else:
         # Bot needs to ask a question
         logger.info(f"handle_bot_turn_immediate: Bot {current_player.name} needs to ask a question")
         # Get available players (exclude self and the person who just asked this bot)
         available_players = [p for p in game.players if p.id != current_player.id and p.id != game.last_questioned_by]
         if available_players:
-            target = random.choice(available_players)  # Randomly choose from available players
-            logger.info(f"handle_bot_turn_immediate: Bot {current_player.name} asking {target.name}")
-            if game.ask_question(current_player.id, target.id, "Question"):
-                logger.info(f"Bot {current_player.name} asked a question to {target.name}")
-                await manager.send_game_state(game_id)
-                # Schedule next bot action instead of immediate recursion
-                schedule_next_bot_action(game_id)
-            else:
-                logger.info(f"handle_bot_turn_immediate: Failed to ask question")
+            # Use Claude API to generate question
+            available_target_ids = [p.id for p in available_players]
+            game_state_dict = game.to_player_dict(current_player.id)
+
+            try:
+                result = await claude_client.generate_question(game_state_dict, current_player.id, available_target_ids)
+                if result:
+                    target_id, question = result
+                    logger.info(f"handle_bot_turn_immediate: Claude generated question for {current_player.name} -> {target_id}: {question}")
+                    if game.ask_question(current_player.id, target_id, question):
+                        logger.info(f"Bot {current_player.name} asked Claude-generated question to {target_id}")
+                        await manager.send_game_state(game_id)
+                        schedule_next_bot_action(game_id)
+                    else:
+                        logger.info(f"handle_bot_turn_immediate: Failed to ask Claude-generated question")
+                else:
+                    # Fallback to random question if Claude fails
+                    logger.warning(f"Claude failed to generate question, using fallback")
+                    target = random.choice(available_players)
+                    fallback_question = "What do you think about this place?"
+                    if game.ask_question(current_player.id, target.id, fallback_question):
+                        logger.info(f"Bot {current_player.name} asked fallback question to {target.name}")
+                        await manager.send_game_state(game_id)
+                        schedule_next_bot_action(game_id)
+            except Exception as e:
+                logger.error(f"Error generating question with Claude: {e}")
+                # Fallback to random question
+                target = random.choice(available_players)
+                fallback_question = "What do you think about this place?"
+                if game.ask_question(current_player.id, target.id, fallback_question):
+                    logger.info(f"Bot {current_player.name} asked fallback question to {target.name}")
+                    await manager.send_game_state(game_id)
+                    schedule_next_bot_action(game_id)
         else:
             logger.info(f"handle_bot_turn_immediate: No available players to ask (last_questioned_by={game.last_questioned_by})")
 

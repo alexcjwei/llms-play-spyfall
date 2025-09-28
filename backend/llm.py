@@ -6,7 +6,11 @@ import json
 import logging
 from typing import Optional, Dict, Any, List, Tuple
 import httpx
+from dotenv import load_dotenv
 from prompts import build_question_prompt, build_answer_prompt, build_accusation_prompt
+
+# Load environment variables
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
