@@ -516,6 +516,7 @@ class Game:
             ],
             "currentTurn": self.current_turn,
             "location": self.location.name if self.location else None,
+            "availableLocations": [loc.name for loc in LOCATIONS],
             "messages": [
                 {
                     "id": m.id,
@@ -537,7 +538,8 @@ class Game:
                 "votes": self.current_accusation.votes
             } if self.current_accusation else None,
             "winner": self.winner,
-            "endReason": self.end_reason.value if self.end_reason else None
+            "endReason": self.end_reason.value if self.end_reason else None,
+            "spyId": self.spy_id if self.status == GameStatus.FINISHED else None
         }
 
     def to_player_dict(self, player_id: str) -> Dict[str, Any]:

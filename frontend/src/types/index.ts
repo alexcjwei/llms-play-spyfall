@@ -41,6 +41,7 @@ export interface GameState {
   location?: string;
   role?: string;
   isSpy: boolean;
+  availableLocations?: string[];
   messages: Message[];
   clockStopped: boolean;
   lastQuestionedBy?: string;
@@ -53,6 +54,7 @@ export interface GameState {
   };
   winner?: string;
   endReason?: string;
+  spyId?: string;
 }
 
 export interface Message {
@@ -72,7 +74,8 @@ export type ClientMessageType =
   | 'ask_question'
   | 'give_answer'
   | 'vote'
-  | 'accuse_player';
+  | 'accuse_player'
+  | 'spy_guess_location';
 
 export type ServerMessageType =
   | 'game_state'
@@ -87,7 +90,9 @@ export type ServerMessageType =
   | 'answer_error'
   | 'accusation_made'
   | 'accusation_error'
-  | 'end_of_round_accusation_made';
+  | 'end_of_round_accusation_made'
+  | 'spy_revealed'
+  | 'spy_guess_error';
 
 // Base message interface
 interface BaseMessage {
@@ -134,6 +139,12 @@ export interface AccusePlayerMessage extends BaseMessage {
   target: string;
 }
 
+export interface SpyGuessLocationMessage extends BaseMessage {
+  type: 'spy_guess_location';
+  game_id: string;
+  location: string;
+}
+
 // Server message interfaces
 export interface GameStateMessage extends BaseMessage {
   type: 'game_state';
@@ -147,7 +158,7 @@ export interface JoinSuccessMessage extends BaseMessage {
 }
 
 export interface ErrorMessage extends BaseMessage {
-  type: 'join_error' | 'start_error' | 'question_error' | 'answer_error' | 'accusation_error';
+  type: 'join_error' | 'start_error' | 'question_error' | 'answer_error' | 'accusation_error' | 'spy_guess_error';
   message: string;
 }
 
@@ -169,6 +180,15 @@ export interface AccusationMadeMessage extends BaseMessage {
   game_id: string;
 }
 
+export interface SpyRevealedMessage extends BaseMessage {
+  type: 'spy_revealed';
+  spy: string;
+  guessed_location: string;
+  actual_location: string;
+  correct: boolean;
+  game_id: string;
+}
+
 // Union type for all possible messages
 export type WebSocketMessage =
   | JoinGameMessage
@@ -177,9 +197,11 @@ export type WebSocketMessage =
   | GiveAnswerMessage
   | VoteMessage
   | AccusePlayerMessage
+  | SpyGuessLocationMessage
   | GameStateMessage
   | JoinSuccessMessage
   | ErrorMessage
   | GameStartedMessage
   | PlayerStatusMessage
-  | AccusationMadeMessage;
+  | AccusationMadeMessage
+  | SpyRevealedMessage;

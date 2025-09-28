@@ -127,6 +127,8 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                 await handle_vote(client_id, message)
             elif message_type == "accuse_player":
                 await handle_accuse_player(client_id, message)
+            elif message_type == "spy_guess_location":
+                await handle_spy_guess_location(client_id, message)
             else:
                 logger.warning(f"Unknown message type: {message_type}")
 
@@ -714,6 +716,49 @@ async def handle_end_of_round_bot_voting(game_id: str):
                 logger.info(f"Vote resolution complete, scheduling bot logic for next accuser")
                 task = asyncio.create_task(delayed_bot_turn(game_id, delay=0))
                 schedule_task(game_id, task)
+
+async def handle_spy_guess_location(client_id: str, message: dict):
+    """Handle spy guessing the location"""
+    game_id = message.get("game_id")
+    guessed_location = message.get("location")
+
+    if not game_id or game_id not in active_games:
+        error_response = {
+            "type": "spy_guess_error",
+            "message": "Game not found"
+        }
+        await manager.send_personal_message(json.dumps(error_response), client_id)
+        return
+
+    game = active_games[game_id]
+
+    if game.spy_guess_location(client_id, guessed_location):
+        logger.info(f"Spy {client_id} guessed location: {guessed_location} in game {game_id}")
+
+        # Cancel any pending bot actions - game is ending
+        cancel_pending_task(game_id)
+
+        # Send updated game state to all players
+        await manager.send_game_state(game_id)
+
+        # Notify all players about the spy's guess
+        spy_name = next((p.name for p in game.players if p.id == client_id), "Unknown")
+
+        response = {
+            "type": "spy_revealed",
+            "spy": spy_name,
+            "guessed_location": guessed_location,
+            "actual_location": game.location.name if game.location else "Unknown",
+            "correct": game.winner == "spy",
+            "game_id": game_id
+        }
+        await manager.broadcast_to_game(json.dumps(response), game_id)
+    else:
+        error_response = {
+            "type": "spy_guess_error",
+            "message": "Cannot guess location (not the spy, game not in progress, or clock stopped)"
+        }
+        await manager.send_personal_message(json.dumps(error_response), client_id)
 
 async def handle_client_disconnect(client_id: str):
     """Handle client disconnection"""

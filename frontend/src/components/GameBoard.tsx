@@ -20,6 +20,8 @@ const GameBoard: React.FC<GameBoardProps> = ({
   const [selectedTarget, setSelectedTarget] = useState('');
   const [showAccuseModal, setShowAccuseModal] = useState(false);
   const [accuseTarget, setAccuseTarget] = useState('');
+  const [showSpyRevealModal, setShowSpyRevealModal] = useState(false);
+  const [guessedLocation, setGuessedLocation] = useState('');
 
   const { sendMessage, lastMessage: wsMessage } = useWebSocket(
     `ws://localhost:${GAME_CONSTANTS.DEFAULT_PORT}/ws/${playerId}`
@@ -68,6 +70,14 @@ const GameBoard: React.FC<GameBoardProps> = ({
     gameService.vote(gameState.id, guilty);
   };
 
+  const handleSpyReveal = () => {
+    if (guessedLocation.trim()) {
+      gameService.spyGuessLocation(gameState.id, guessedLocation.trim());
+      setShowSpyRevealModal(false);
+      setGuessedLocation('');
+    }
+  };
+
 
   const isMyTurn = gameState.currentTurn === playerId;
   const otherPlayers = gameState.players.filter(p => p.id !== playerId);
@@ -81,6 +91,20 @@ const GameBoard: React.FC<GameBoardProps> = ({
     return GameService.getPlayerName(gameState, playerId);
   }, [gameState]);
 
+  // Helper function to get spy player name
+  const getSpyName = React.useCallback(() => {
+    // If I'm the spy, return "You"
+    if (gameState.isSpy) {
+      return "You";
+    }
+    // If game is finished and we have the spy ID, find the spy player
+    if (gameState.status === GAME_STATUS.FINISHED && gameState.spyId) {
+      const spyPlayer = gameState.players.find(p => p.id === gameState.spyId);
+      return spyPlayer ? spyPlayer.name : "The spy";
+    }
+    return "The spy";
+  }, [gameState]);
+
   return (
     <div className="max-w-6xl mx-auto bg-white rounded-lg shadow p-6">
       {/* Game Results (only shown when game is finished) */}
@@ -91,7 +115,7 @@ const GameBoard: React.FC<GameBoardProps> = ({
             <div className={`inline-block px-6 py-3 rounded-lg text-xl font-bold ${
               gameState.winner === 'spy' ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
             }`}>
-              {gameState.winner === 'spy' ? '🕵️ SPY WINS!' : '👥 INNOCENTS WIN!'}
+              {gameState.winner === 'spy' ? `🕵️ ${getSpyName().toUpperCase()} WIN${gameState.isSpy ? '' : 'S'}!` : '👥 INNOCENTS WIN!'}
             </div>
             {gameState.endReason && (
               <p className="mt-3 text-gray-600">
@@ -383,6 +407,17 @@ const GameBoard: React.FC<GameBoardProps> = ({
           >
             🚨 {hasAlreadyAccused ? 'Already Accused' : 'Accuse Player'}
           </button>
+
+          {/* Spy Reveal Button - only shown to spies during active gameplay */}
+          {gameState.isSpy && (
+            <button
+              onClick={() => setShowSpyRevealModal(true)}
+              className="px-6 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
+              title="Reveal your identity and guess the location to win"
+            >
+              🎭 Reveal & Guess Location
+            </button>
+          )}
         </div>
       )}
 
@@ -420,6 +455,51 @@ const GameBoard: React.FC<GameBoardProps> = ({
                 onClick={() => {
                   setShowAccuseModal(false);
                   setAccuseTarget('');
+                }}
+                className="flex-1 px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Spy Reveal Modal */}
+      {showSpyRevealModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-xl font-bold mb-4 text-purple-600">🎭 Reveal Your Identity</h3>
+            <p className="text-gray-600 mb-4">
+              As the spy, you can reveal your identity and guess the location to win the game.
+              If you guess correctly, you win! If you guess incorrectly, the innocents win.
+            </p>
+
+            <select
+              value={guessedLocation}
+              onChange={(e) => setGuessedLocation(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 mb-4"
+            >
+              <option value="">Select a location...</option>
+              {gameState.availableLocations?.map((location) => (
+                <option key={location} value={location}>
+                  {location}
+                </option>
+              ))}
+            </select>
+
+            <div className="flex space-x-3">
+              <button
+                onClick={handleSpyReveal}
+                disabled={!guessedLocation}
+                className="flex-1 px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:bg-gray-400"
+              >
+                Reveal & Guess
+              </button>
+              <button
+                onClick={() => {
+                  setShowSpyRevealModal(false);
+                  setGuessedLocation('');
                 }}
                 className="flex-1 px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
               >

@@ -7,6 +7,7 @@ import {
   GiveAnswerMessage,
   VoteMessage,
   AccusePlayerMessage,
+  SpyGuessLocationMessage,
   GAME_CONSTANTS
 } from '../types';
 
@@ -73,6 +74,15 @@ export class GameService {
     this.sendMessage(JSON.stringify(message));
   }
 
+  spyGuessLocation(gameId: string, location: string): void {
+    const message: SpyGuessLocationMessage = {
+      type: 'spy_guess_location',
+      game_id: gameId,
+      location: location.trim()
+    };
+    this.sendMessage(JSON.stringify(message));
+  }
+
   // Utility functions
   static generateGameId(): string {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -98,6 +108,7 @@ export class GameService {
       onGameStarted?: (gameId: string) => void;
       onPlayerDisconnected?: (playerId: string, playerName?: string) => void;
       onAccusationMade?: (accuser: string, accused: string) => void;
+      onSpyRevealed?: (spy: string, guessedLocation: string, actualLocation: string, correct: boolean) => void;
     }
   ): void {
     console.log('Received message:', message);
@@ -116,6 +127,7 @@ export class GameService {
       case 'question_error':
       case 'answer_error':
       case 'accusation_error':
+      case 'spy_guess_error':
         console.error('Error:', message.message);
         if (callbacks.onError && message.message) {
           callbacks.onError(message.message);
@@ -149,6 +161,13 @@ export class GameService {
         console.log('Accusation made:', message.accuser, 'vs', message.accused);
         if (callbacks.onAccusationMade && message.accuser && message.accused) {
           callbacks.onAccusationMade(message.accuser, message.accused);
+        }
+        break;
+
+      case 'spy_revealed':
+        console.log('Spy revealed:', message.spy, 'guessed:', message.guessed_location, 'actual:', message.actual_location, 'correct:', message.correct);
+        if (callbacks.onSpyRevealed && message.spy && message.guessed_location && message.actual_location !== undefined) {
+          callbacks.onSpyRevealed(message.spy, message.guessed_location, message.actual_location, message.correct);
         }
         break;
 
