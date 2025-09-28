@@ -308,79 +308,68 @@ async def handle_give_answer(client_id: str, message: dict):
         }
         await manager.send_personal_message(json.dumps(error_response), client_id)
 
-async def delayed_bot_turn(game_id: str, delay: int = 2):
-    """Delayed bot turn handling with state checking."""
-    await asyncio.sleep(delay)
+async def delayed_bot_action(game_id: str, action_type: str, delay: int = 0):
+    """Generic delayed bot action handler with state checking."""
+    if delay > 0:
+        await asyncio.sleep(delay)
 
-    # Check if game state still allows bot actions
+    # Check if game still exists
     if game_id not in active_games:
-        logger.info(f"delayed_bot_turn: Game {game_id} not found after delay")
+        logger.info(f"delayed_bot_action: Game {game_id} not found after delay")
         return
 
     game = active_games[game_id]
 
-    # Only proceed if game allows bot actions
-    if game.status not in [GameStatus.IN_PROGRESS, GameStatus.VOTING, GameStatus.END_OF_ROUND_VOTING]:
-        logger.info(f"delayed_bot_turn: Game {game_id} not in valid state for bot actions (status: {game.status})")
-        return
+    # Route to appropriate handler based on action type
+    if action_type == "turn":
+        # Only proceed if game allows bot actions
+        if game.status not in [GameStatus.IN_PROGRESS, GameStatus.VOTING, GameStatus.END_OF_ROUND_VOTING]:
+            logger.info(f"delayed_bot_action: Game {game_id} not in valid state for bot actions (status: {game.status})")
+            return
 
-    # For IN_PROGRESS games, don't act if clock is stopped (voting states expect clock to be stopped)
-    if game.status == GameStatus.IN_PROGRESS and game.clock_stopped:
-        logger.info(f"delayed_bot_turn: Game {game_id} clock stopped during IN_PROGRESS")
-        return
+        # For IN_PROGRESS games, don't act if clock is stopped (voting states expect clock to be stopped)
+        if game.status == GameStatus.IN_PROGRESS and game.clock_stopped:
+            logger.info(f"delayed_bot_action: Game {game_id} clock stopped during IN_PROGRESS")
+            return
 
-    await handle_bot_turn_immediate(game_id)
+        await handle_bot_turn_immediate(game_id)
+
+    elif action_type == "voting":
+        if not game.current_accusation:
+            return
+
+        # Handle both regular voting and end-of-round voting
+        if game.status == GameStatus.VOTING:
+            await handle_bot_voting(game_id)
+        elif game.status == GameStatus.END_OF_ROUND_VOTING:
+            await handle_end_of_round_bot_voting(game_id)
+
+    elif action_type == "end_of_round_voting":
+        if game.status != GameStatus.END_OF_ROUND_VOTING:
+            return
+        await handle_end_of_round_bot_voting(game_id)
+
+    elif action_type == "end_of_round_accusation":
+        if game.status != GameStatus.END_OF_ROUND_VOTING:
+            return
+        await handle_bot_end_of_round_accusation(game_id)
+
+# Convenience wrappers for backward compatibility
+async def delayed_bot_turn(game_id: str, delay: int = 2):
+    """Delayed bot turn handling with state checking."""
+    await delayed_bot_action(game_id, "turn", delay)
 
 async def delayed_bot_voting(game_id: str, delay: int = 0):
     """Delayed bot voting action with state checking."""
-    if delay > 0:
-        await asyncio.sleep(delay)
-
-    # Check if game state still allows voting
-    if game_id not in active_games:
-        return
-
-    game = active_games[game_id]
-    if not game.current_accusation:
-        return
-
-    # Handle both regular voting and end-of-round voting
-    if game.status == GameStatus.VOTING:
-        await handle_bot_voting(game_id)
-    elif game.status == GameStatus.END_OF_ROUND_VOTING:
-        await handle_end_of_round_bot_voting(game_id)
-    else:
-        return  # Wrong state for voting
+    await delayed_bot_action(game_id, "voting", delay)
 
 async def delayed_bot_end_of_round_voting(game_id: str, delay: int = 0):
     """Delayed bot end-of-round voting action with state checking."""
-    if delay > 0:
-        await asyncio.sleep(delay)
-
-    # Check if game state still allows end-of-round voting
-    if game_id not in active_games:
-        return
-
-    game = active_games[game_id]
-    if game.status != GameStatus.END_OF_ROUND_VOTING:
-        return
-
-    await handle_end_of_round_bot_voting(game_id)
+    await delayed_bot_action(game_id, "end_of_round_voting", delay)
 
 async def delayed_bot_end_of_round_accusation(game_id: str, delay: int = 0):
     """Delayed bot end-of-round accusation action with state checking."""
-    if delay > 0:
-        await asyncio.sleep(delay)
-
-    # Check if game state still allows end-of-round accusations
-    if game_id not in active_games:
-        return
-
-    game = active_games[game_id]
-    if game.status != GameStatus.END_OF_ROUND_VOTING:
-        return
-
-    await handle_bot_end_of_round_accusation(game_id)
+    await delayed_bot_action(game_id, "end_of_round_accusation", delay)
 
 async def handle_bot_turn_immediate(game_id: str):
     """Handle bot's turn immediately without delay - core bot logic."""

@@ -1,3 +1,26 @@
+// Game constants
+export const GAME_CONSTANTS = {
+  MAX_PLAYERS: 8,
+  MIN_PLAYERS: 3,
+  DEFAULT_QA_ROUNDS: 3,
+  GAME_ID_LENGTH: 6,
+  DEFAULT_PORT: 8000,
+  DEFAULT_BOT_DELAY: 2000, // ms
+} as const;
+
+export const GAME_STATUS = {
+  WAITING: 'waiting',
+  IN_PROGRESS: 'in_progress',
+  VOTING: 'voting',
+  END_OF_ROUND_VOTING: 'end_of_round_voting',
+  FINISHED: 'finished',
+} as const;
+
+export const MESSAGE_TYPES = {
+  QUESTION: 'question',
+  ANSWER: 'answer',
+} as const;
+
 export interface Player {
   id: string;
   name: string;
@@ -7,9 +30,12 @@ export interface Player {
   hasAccusedThisRound?: boolean;
 }
 
+export type GameStatusType = typeof GAME_STATUS[keyof typeof GAME_STATUS];
+export type MessageType = typeof MESSAGE_TYPES[keyof typeof MESSAGE_TYPES];
+
 export interface GameState {
   id: string;
-  status: 'waiting' | 'in_progress' | 'voting' | 'end_of_round_voting' | 'finished';
+  status: GameStatusType;
   players: Player[];
   currentTurn?: string;
   location?: string;
@@ -31,7 +57,7 @@ export interface GameState {
 
 export interface Message {
   id: string;
-  type: 'question' | 'answer';
+  type: MessageType;
   from: string;
   to?: string;
   content: string;
@@ -39,18 +65,121 @@ export interface Message {
 }
 
 
-export interface WebSocketMessage {
-  type: 'join_game' | 'start_game' | 'ask_question' | 'give_answer' | 'vote' | 'accuse_player' | 'game_state' | 'join_success' | 'rejoin_success' | 'join_error' | 'start_error' | 'game_started' | 'player_left' | 'player_disconnected' | 'question_error' | 'answer_error' | 'accusation_made' | 'accusation_error' | 'end_of_round_accusation_made';
+// WebSocket message types
+export type ClientMessageType =
+  | 'join_game'
+  | 'start_game'
+  | 'ask_question'
+  | 'give_answer'
+  | 'vote'
+  | 'accuse_player';
+
+export type ServerMessageType =
+  | 'game_state'
+  | 'join_success'
+  | 'rejoin_success'
+  | 'join_error'
+  | 'start_error'
+  | 'game_started'
+  | 'player_left'
+  | 'player_disconnected'
+  | 'question_error'
+  | 'answer_error'
+  | 'accusation_made'
+  | 'accusation_error'
+  | 'end_of_round_accusation_made';
+
+// Base message interface
+interface BaseMessage {
+  type: ClientMessageType | ServerMessageType;
   game_id?: string;
-  player_name?: string;
-  is_bot?: boolean;
-  content?: string;
-  target?: string;
-  from?: string;
-  data?: GameState;
-  message?: string;
-  player_id?: string;
-  player_name_left?: string;
   timestamp?: number;
-  vote?: boolean;
 }
+
+// Client message interfaces
+export interface JoinGameMessage extends BaseMessage {
+  type: 'join_game';
+  game_id: string;
+  player_name: string;
+  is_bot?: boolean;
+}
+
+export interface StartGameMessage extends BaseMessage {
+  type: 'start_game';
+  game_id: string;
+}
+
+export interface AskQuestionMessage extends BaseMessage {
+  type: 'ask_question';
+  game_id: string;
+  content: string;
+  target: string;
+}
+
+export interface GiveAnswerMessage extends BaseMessage {
+  type: 'give_answer';
+  game_id: string;
+  content: string;
+}
+
+export interface VoteMessage extends BaseMessage {
+  type: 'vote';
+  game_id: string;
+  vote: boolean;
+}
+
+export interface AccusePlayerMessage extends BaseMessage {
+  type: 'accuse_player';
+  game_id: string;
+  target: string;
+}
+
+// Server message interfaces
+export interface GameStateMessage extends BaseMessage {
+  type: 'game_state';
+  data: GameState;
+}
+
+export interface JoinSuccessMessage extends BaseMessage {
+  type: 'join_success' | 'rejoin_success';
+  game_id: string;
+  player_id: string;
+}
+
+export interface ErrorMessage extends BaseMessage {
+  type: 'join_error' | 'start_error' | 'question_error' | 'answer_error' | 'accusation_error';
+  message: string;
+}
+
+export interface GameStartedMessage extends BaseMessage {
+  type: 'game_started';
+  game_id: string;
+}
+
+export interface PlayerStatusMessage extends BaseMessage {
+  type: 'player_left' | 'player_disconnected';
+  player_id: string;
+  player_name?: string;
+}
+
+export interface AccusationMadeMessage extends BaseMessage {
+  type: 'accusation_made' | 'end_of_round_accusation_made';
+  accuser: string;
+  accused: string;
+  game_id: string;
+}
+
+// Union type for all possible messages
+export type WebSocketMessage =
+  | JoinGameMessage
+  | StartGameMessage
+  | AskQuestionMessage
+  | GiveAnswerMessage
+  | VoteMessage
+  | AccusePlayerMessage
+  | GameStateMessage
+  | JoinSuccessMessage
+  | ErrorMessage
+  | GameStartedMessage
+  | PlayerStatusMessage
+  | AccusationMadeMessage;

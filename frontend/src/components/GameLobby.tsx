@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { GameState, WebSocketMessage } from '../types';
+import { GameState, WebSocketMessage, GAME_CONSTANTS, GAME_STATUS } from '../types';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { GameService } from '../services/gameService';
 import GameBoard from './GameBoard';
 
 const GameLobby: React.FC = () => {
@@ -18,8 +19,11 @@ const GameLobby: React.FC = () => {
   }, [playerId]);
 
   const { sendMessage, lastMessage, connectionStatus } = useWebSocket(
-    playerId ? `ws://localhost:8000/ws/${playerId}` : null
+    playerId ? `ws://localhost:${GAME_CONSTANTS.DEFAULT_PORT}/ws/${playerId}` : null
   );
+
+  // Create game service instance
+  const gameService = new GameService(sendMessage);
 
   useEffect(() => {
     setIsConnected(connectionStatus === 'Open');
@@ -28,78 +32,36 @@ const GameLobby: React.FC = () => {
   useEffect(() => {
     if (lastMessage) {
       const message: WebSocketMessage = JSON.parse(lastMessage.data);
-      handleWebSocketMessage(message);
+      GameService.handleWebSocketMessage(message, {
+        onGameState: setGameState,
+        onJoinSuccess: (gameId, playerId) => {
+          console.log('Successfully joined/rejoined game:', gameId);
+        },
+        onError: (error) => {
+          console.error('Game error:', error);
+        },
+        onGameStarted: (gameId) => {
+          console.log('Game started:', gameId);
+        },
+        onPlayerDisconnected: (playerId, playerName) => {
+          console.log('Player disconnected:', playerId, playerName);
+        }
+      });
     }
   }, [lastMessage]);
 
-  const handleWebSocketMessage = (message: WebSocketMessage) => {
-    console.log('Received message:', message);
-    switch (message.type) {
-      case 'join_success':
-      case 'rejoin_success':
-        console.log('Successfully joined/rejoined game:', message.game_id);
-        break;
-      case 'join_error':
-        console.error('Failed to join game:', message.message);
-        break;
-      case 'game_state':
-        if (message.data) {
-          console.log('Game state update:', message.data);
-          setGameState(message.data);
-        }
-        break;
-      case 'game_started':
-        console.log('Game started');
-        break;
-      case 'start_error':
-        console.error('Failed to start game:', message.message);
-        break;
-      case 'question_error':
-        console.error('Question error:', message.message);
-        break;
-      case 'answer_error':
-        console.error('Answer error:', message.message);
-        break;
-      case 'player_left':
-      case 'player_disconnected':
-        console.log('Player left/disconnected:', message.player_id);
-        break;
-      default:
-        console.log('Unhandled message type:', message.type);
-    }
-  };
-
-  const generateGameId = () => {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let result = '';
-    for (let i = 0; i < 6; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return result;
-  };
 
   const createNewGame = () => {
     if (playerName && isConnected && playerId) {
-      const newGameId = generateGameId();
-      const message: WebSocketMessage = {
-        type: 'join_game',
-        game_id: newGameId,
-        player_name: playerName
-      };
-      sendMessage(JSON.stringify(message));
+      const newGameId = GameService.generateGameId();
+      gameService.joinGame(newGameId, playerName);
     }
   };
 
   const joinExistingGame = () => {
     if (playerName && gameIdInput && isConnected && playerId) {
       console.log('Attempting to join game:', gameIdInput, 'as player:', playerName);
-      const message: WebSocketMessage = {
-        type: 'join_game',
-        game_id: gameIdInput,
-        player_name: playerName
-      };
-      console.log('Sending join message:', message);
-      sendMessage(JSON.stringify(message));
+      gameService.joinGame(gameIdInput, playerName);
     } else {
       console.log('Join conditions not met:', { playerName, gameIdInput, isConnected, playerId });
     }
@@ -107,11 +69,7 @@ const GameLobby: React.FC = () => {
 
   const startGame = () => {
     if (gameState && isConnected) {
-      const message: WebSocketMessage = {
-        type: 'start_game',
-        game_id: gameState.id
-      };
-      sendMessage(JSON.stringify(message));
+      gameService.startGame(gameState.id);
     }
   };
 
@@ -158,7 +116,7 @@ const GameLobby: React.FC = () => {
                 onChange={(e) => setGameIdInput(e.target.value.toUpperCase())}
                 className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 mb-2"
                 placeholder="Enter Game ID (e.g. ABC123)"
-                maxLength={6}
+                maxLength={GAME_CONSTANTS.GAME_ID_LENGTH}
               />
               <button
                 onClick={joinExistingGame}
@@ -197,15 +155,15 @@ const GameLobby: React.FC = () => {
 
       <div className="mb-4">
         <div className={`p-3 rounded ${
-          gameState.status === 'waiting' ? 'bg-yellow-100 text-yellow-800' :
-          gameState.status === 'in_progress' ? 'bg-green-100 text-green-800' :
+          gameState.status === GAME_STATUS.WAITING ? 'bg-yellow-100 text-yellow-800' :
+          gameState.status === GAME_STATUS.IN_PROGRESS ? 'bg-green-100 text-green-800' :
           'bg-gray-100 text-gray-800'
         }`}>
           Status: {gameState.status.toUpperCase()}
         </div>
       </div>
 
-      {gameState.status === 'waiting' && (
+      {gameState.status === GAME_STATUS.WAITING && (
         <button
           onClick={startGame}
           className="w-full bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700"
@@ -214,7 +172,10 @@ const GameLobby: React.FC = () => {
         </button>
       )}
 
-      {(gameState.status === 'in_progress' || gameState.status === 'voting' || gameState.status === 'end_of_round_voting' || gameState.status === 'finished') && (
+      {(gameState.status === GAME_STATUS.IN_PROGRESS ||
+        gameState.status === GAME_STATUS.VOTING ||
+        gameState.status === GAME_STATUS.END_OF_ROUND_VOTING ||
+        gameState.status === GAME_STATUS.FINISHED) && (
         <GameBoard
           gameState={gameState}
           playerId={playerId}
