@@ -6,7 +6,7 @@ export interface UseWebSocketReturn {
   connectionStatus: 'Connecting' | 'Open' | 'Closing' | 'Closed';
 }
 
-export const useWebSocket = (url: string): UseWebSocketReturn => {
+export const useWebSocket = (url: string | null): UseWebSocketReturn => {
   const [connectionStatus, setConnectionStatus] = useState<'Connecting' | 'Open' | 'Closing' | 'Closed'>('Closed');
   const [lastMessage, setLastMessage] = useState<MessageEvent | null>(null);
   const ws = useRef<WebSocket | null>(null);

@@ -3,36 +3,50 @@ export interface Player {
   name: string;
   isBot: boolean;
   isConnected: boolean;
+  points?: number;
 }
 
 export interface GameState {
   id: string;
-  status: 'waiting' | 'in_progress' | 'finished';
+  status: 'waiting' | 'in_progress' | 'voting' | 'finished';
   players: Player[];
   currentTurn?: string;
-  timeRemaining?: number;
+  timeRemaining: number;
   location?: string;
   role?: string;
   isSpy: boolean;
+  messages: Message[];
+  clockStopped: boolean;
+  currentAccusation?: {
+    accuser: string;
+    accused: string;
+    votes: Record<string, boolean>;
+  };
+  winner?: string;
+  endReason?: string;
 }
 
 export interface Message {
   id: string;
-  type: 'question' | 'answer' | 'system';
+  type: 'question' | 'answer';
   from: string;
   to?: string;
   content: string;
   timestamp: number;
 }
 
+
 export interface WebSocketMessage {
-  type: 'join_game' | 'start_game' | 'send_message' | 'vote' | 'game_joined' | 'game_started' | 'message' | 'vote_cast' | 'player_left';
+  type: 'join_game' | 'start_game' | 'ask_question' | 'give_answer' | 'vote' | 'game_state' | 'join_success' | 'rejoin_success' | 'join_error' | 'start_error' | 'game_started' | 'player_left' | 'player_disconnected' | 'question_error' | 'answer_error';
   game_id?: string;
+  player_name?: string;
+  is_bot?: boolean;
   content?: string;
   target?: string;
   from?: string;
-  players?: string[];
-  voter?: string;
-  player?: string;
+  data?: GameState;
+  message?: string;
+  player_id?: string;
+  player_name_left?: string;
   timestamp?: number;
 }
