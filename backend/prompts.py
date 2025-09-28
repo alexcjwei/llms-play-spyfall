@@ -230,7 +230,7 @@ def build_voting_prompt(
 
     # Get accusation details
     accusation = game_state.get("currentAccusation", {})
-    accuser_id = accusation.get("accuserId", "")
+    accuser_id = accusation.get("accuser", "")
     accuser = next((p for p in game_state["players"] if p["id"] == accuser_id), None)
     accuser_name = accuser["name"] if accuser else "Unknown"
 
