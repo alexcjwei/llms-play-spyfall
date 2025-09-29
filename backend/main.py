@@ -34,6 +34,26 @@ active_games: dict[str, Game] = {}
 connected_clients = {}
 pending_tasks: dict[str, asyncio.Task] = {}  # game_id -> pending async task
 
+# Start timer checking task
+async def check_game_timers():
+    """Periodically check for expired game timers"""
+    while True:
+        try:
+            for game_id, game in list(active_games.items()):
+                if game.check_time_expired():
+                    logger.info(f"Timer expired for game {game_id}")
+                    # Cancel any pending bot actions
+                    cancel_pending_task(game_id)
+                    # Send updated game state to all players
+                    await manager.send_game_state(game_id)
+            await asyncio.sleep(1)  # Check every second
+        except Exception as e:
+            logger.error(f"Error in timer checking: {e}")
+            await asyncio.sleep(1)
+
+# Global variable to store the timer task
+timer_task = None
+
 
 def cancel_pending_task(game_id: str):
     """Cancel any pending task for the given game."""
@@ -905,6 +925,25 @@ async def handle_client_disconnect(client_id: str):
 # Serve React build files in production
 if not os.getenv("DEBUG", "False").lower() == "true":
     app.mount("/", StaticFiles(directory="../frontend/build", html=True), name="static")
+
+@app.on_event("startup")
+async def startup_event():
+    """Start background tasks when the server starts"""
+    global timer_task
+    timer_task = asyncio.create_task(check_game_timers())
+    logger.info("Started timer checking task")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up background tasks when the server shuts down"""
+    global timer_task
+    if timer_task:
+        timer_task.cancel()
+        try:
+            await timer_task
+        except asyncio.CancelledError:
+            pass
+    logger.info("Stopped timer checking task")
 
 if __name__ == "__main__":
     import uvicorn

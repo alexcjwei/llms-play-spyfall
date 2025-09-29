@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 import random
 import time
 from enum import Enum
+from timer import GameTimer
 
 class GameStatus(Enum):
     WAITING = "waiting"
@@ -73,6 +74,7 @@ class Game:
     last_questioned_by: Optional[str] = None  # Prevents asking same player back
     qa_rounds_completed: int = 0  # Track completed Q&A rounds
     max_qa_rounds: int = 3  # Game ends after this many Q&A rounds
+    timer: GameTimer = field(default_factory=lambda: GameTimer(duration=480.0))  # 8 minutes
 
     @property
     def current_accusation(self) -> Optional[Accusation]:
@@ -124,6 +126,10 @@ class Game:
             self.current_turn = self.players[0].id
 
         self.status = GameStatus.IN_PROGRESS
+
+        # Start the timer
+        self.timer.start()
+
         return True
 
     def _assign_roles(self):
@@ -201,11 +207,6 @@ class Game:
         # Increment Q&A round counter (a round = question + answer)
         self.qa_rounds_completed += 1
 
-        # Check if we've reached the maximum rounds
-        if self.qa_rounds_completed >= self.max_qa_rounds:
-            self._end_game_time_up()
-            return True
-
         # Player can now ask the next question (turn stays with them)
         return True
 
@@ -218,6 +219,9 @@ class Game:
         accuser = next((p for p in self.players if p.id == accuser_id), None)
         if not accuser or accuser.has_accused_this_round:
             return False
+
+        # Pause the timer
+        self.timer.pause()
 
         # Stop the clock and create accusation
         self.clock_stopped = True
@@ -282,6 +286,7 @@ class Game:
                         spy.points += 4
         else:
             # Accusation failed - resume game
+            self.timer.resume()
             self.clock_stopped = False
             self.clock_stopped_by = None
             self.status = GameStatus.IN_PROGRESS
@@ -325,12 +330,10 @@ class Game:
     def check_time_expired(self) -> bool:
         """Check if the round time has expired."""
         if (self.status != GameStatus.IN_PROGRESS or
-            not self.started_at or
             self.clock_stopped):
             return False
 
-        time_elapsed = time.time() - self.started_at
-        if time_elapsed >= self.round_duration:
+        if self.timer.is_expired():
             # Time expired - start final accusation phase
             self._handle_time_expiry()
             return True
@@ -339,14 +342,8 @@ class Game:
 
     def _handle_time_expiry(self):
         """Handle the end-of-time accusation phase."""
-        # Reset accusation flags for final voting
-        for player in self.players:
-            player.has_accused_this_round = False
-
-        # Start with dealer making accusation
-        self.current_turn = self.players[0].id if self.players else None
-        self.status = GameStatus.VOTING
-        # Time expiry accusation logic would be implemented in the handler
+        # Start end-of-round accusation phase
+        self._start_end_of_round_voting()
 
     def _advance_turn(self):
         """Move to the next player's turn."""
@@ -357,10 +354,6 @@ class Game:
         next_index = (current_index + 1) % len(self.players)
         self.current_turn = self.players[next_index].id
 
-    def _end_game_time_up(self):
-        """End the game when Q&A rounds are completed - start end-of-round voting."""
-        # Start end-of-round accusation phase
-        self._start_end_of_round_voting()
 
     def _start_end_of_round_voting(self):
         """Start the end-of-round accusation and voting phase."""
@@ -539,7 +532,8 @@ class Game:
             } if self.current_accusation else None,
             "winner": self.winner,
             "endReason": self.end_reason.value if self.end_reason else None,
-            "spyId": self.spy_id if self.status == GameStatus.FINISHED else None
+            "spyId": self.spy_id if self.status == GameStatus.FINISHED else None,
+            "timer": self.timer.to_dict()
         }
 
     def to_player_dict(self, player_id: str) -> Dict[str, Any]:

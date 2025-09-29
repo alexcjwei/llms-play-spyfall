@@ -33,6 +33,16 @@ export interface Player {
 export type GameStatusType = typeof GAME_STATUS[keyof typeof GAME_STATUS];
 export type MessageType = typeof MESSAGE_TYPES[keyof typeof MESSAGE_TYPES];
 
+export interface TimerState {
+  duration: number;
+  started_at?: number;
+  accumulated_paused_time: number;
+  is_running: boolean;
+  status: 'not_started' | 'running' | 'paused' | 'expired';
+  remaining_time: number;
+  elapsed_time: number;
+}
+
 export interface GameState {
   id: string;
   status: GameStatusType;
@@ -55,6 +65,7 @@ export interface GameState {
   winner?: string;
   endReason?: string;
   spyId?: string;
+  timer?: TimerState;
 }
 
 export interface Message {

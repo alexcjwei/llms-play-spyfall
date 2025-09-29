@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { GameState, WebSocketMessage, GAME_STATUS, MESSAGE_TYPES, GAME_CONSTANTS } from '../types';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { GameService } from '../services/gameService';
+import GameTimer from './GameTimer';
 
 interface GameBoardProps {
   gameState: GameState;
@@ -137,35 +138,41 @@ const GameBoard: React.FC<GameBoardProps> = ({
 
       {/* Header with role and timer */}
       <div className="flex justify-between items-center mb-6">
-        <div className="flex items-center space-x-4">
-          <div className={`p-4 rounded-lg ${gameState.isSpy ? 'bg-spy-red text-white' : 'bg-innocent-blue text-white'}`}>
-            <h3 className="text-lg font-bold">
-              {gameState.isSpy ? '🕵️ SPY' : `📍 ${gameState.location || 'INNOCENT'}`}
-            </h3>
-            {!gameState.isSpy && gameState.role && (
-              <p className="text-sm opacity-90">Role: {gameState.role}</p>
-            )}
-          </div>
-
-          <div className="text-center">
-            {gameState.status === GAME_STATUS.END_OF_ROUND_VOTING || gameState.status === GAME_STATUS.FINISHED ? (
-              <>
-                <div className="text-2xl font-bold text-orange-600">
-                  End of Round
-                </div>
-                <div className="text-sm text-gray-500">Final Accusations</div>
-              </>
-            ) : (
-              <>
-                <div className="text-2xl font-bold text-blue-600">
-                  Round {(gameState.qaRoundsCompleted || 0) + 1} / {gameState.maxQaRounds || 3}
-                </div>
-                <div className="text-sm text-gray-500">Q&A Rounds</div>
-              </>
-            )}</div>
+        <div className={`p-4 rounded-lg ${gameState.isSpy ? 'bg-spy-red text-white' : 'bg-innocent-blue text-white'}`}>
+          <h3 className="text-lg font-bold">
+            {gameState.isSpy ? '🕵️ SPY' : `📍 ${gameState.location || 'INNOCENT'}`}
+          </h3>
+          {!gameState.isSpy && gameState.role && (
+            <p className="text-sm opacity-90">Role: {gameState.role}</p>
+          )}
         </div>
 
+        {/* Game Timer - centered */}
+        <div className="bg-white rounded-lg shadow p-4 min-w-[200px]">
+          <GameTimer
+            timerState={gameState.timer}
+            showProgressBar={true}
+          />
+        </div>
 
+        {/* Game Status */}
+        <div className="text-center">
+          {gameState.status === GAME_STATUS.END_OF_ROUND_VOTING || gameState.status === GAME_STATUS.FINISHED ? (
+            <>
+              <div className="text-2xl font-bold text-orange-600">
+                End of Round
+              </div>
+              <div className="text-sm text-gray-500">Final Accusations</div>
+            </>
+          ) : (
+            <>
+              <div className="text-2xl font-bold text-blue-600">
+                In Progress
+              </div>
+              <div className="text-sm text-gray-500">Q&A Phase</div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Players list */}

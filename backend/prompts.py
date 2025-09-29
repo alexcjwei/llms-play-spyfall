@@ -197,12 +197,6 @@ Players you can accuse:
 
 Analyze the Q&A history. Should you make an accusation? If yes, who seems most suspicious?
 
-Consider:
-- Vague or evasive answers
-- Answers that don't fit the location
-- Players asking fishing questions
-- Inconsistent behavior
-
 {json_instruction}"""
 
     return prompt
@@ -252,13 +246,7 @@ def build_voting_prompt(
 
 {qa_history}
 
-{accuser_name} has accused {accused_name} of being the spy. You must vote GUILTY (they are the spy) or INNOCENT (they are not the spy).
-
-Consider all players' behavior in the Q&A history:
-- Who gave vague or evasive answers?
-- Who asked fishing questions to learn the location?
-- Who seemed unfamiliar with the location?
-- Who behaved most suspiciously overall?
+{accuser_name} has accused {accused_name} of being the spy. You must vote GUILTY ({accused_name} is the spy) or INNOCENT ({accused_name} is not the spy).
 
 {json_instruction}"""
 
