@@ -10,6 +10,7 @@ const GameLobby: React.FC = () => {
   const [playerId, setPlayerId] = useState('');
   const [isConnected, setIsConnected] = useState(false);
   const [gameIdInput, setGameIdInput] = useState('');
+  const [playerCount, setPlayerCount] = useState(3);
 
   // Generate a unique player ID
   useEffect(() => {
@@ -69,7 +70,7 @@ const GameLobby: React.FC = () => {
 
   const startGame = () => {
     if (gameState && isConnected) {
-      gameService.startGame(gameState.id);
+      gameService.startGame(gameState.id, playerCount);
     }
   };
 
@@ -152,6 +153,35 @@ const GameLobby: React.FC = () => {
           ))}
         </div>
       </div>
+
+      {gameState.status === GAME_STATUS.WAITING && (
+        <div className="mb-6 p-4 bg-blue-50 rounded-lg">
+          <h4 className="text-md font-medium mb-3">Game Configuration</h4>
+          <div className="space-y-3">
+            <div>
+              <label htmlFor="playerCount" className="block text-sm font-medium text-gray-700 mb-1">
+                Total Players (including you)
+              </label>
+              <select
+                id="playerCount"
+                value={playerCount}
+                onChange={(e) => setPlayerCount(parseInt(e.target.value))}
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              >
+                <option value={3}>3 Players (2 bots)</option>
+                <option value={4}>4 Players (3 bots)</option>
+                <option value={5}>5 Players (4 bots)</option>
+                <option value={6}>6 Players (5 bots)</option>
+                <option value={7}>7 Players (6 bots)</option>
+                <option value={8}>8 Players (7 bots)</option>
+              </select>
+            </div>
+            <div className="text-xs text-gray-600">
+              {playerCount - gameState.players.length} bot(s) will be added when the game starts
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mb-4">
         <div className={`p-3 rounded ${

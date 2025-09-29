@@ -202,6 +202,7 @@ async def handle_join_game(client_id: str, message: dict):
 async def handle_start_game(client_id: str, message: dict):
     """Handle game start request"""
     game_id = message.get("game_id")
+    player_count = message.get("player_count", 3)  # Default to 3 if not specified
 
     if not game_id or game_id not in active_games:
         error_response = {"type": "start_error", "message": "Game not found"}
@@ -217,8 +218,14 @@ async def handle_start_game(client_id: str, message: dict):
         await manager.send_personal_message(json.dumps(error_response), client_id)
         return
 
-    # Add bots if needed to reach minimum players
-    while len(game.players) < 3:
+    # Validate player count
+    if player_count < 3 or player_count > 8:
+        error_response = {"type": "start_error", "message": "Player count must be between 3 and 8"}
+        await manager.send_personal_message(json.dumps(error_response), client_id)
+        return
+
+    # Add bots if needed to reach the requested player count
+    while len(game.players) < player_count:
         bot_id = str(uuid.uuid4())
         bot_names = ["Alice", "Bob", "Carol", "Dan", "Eve", "Frank", "Grace"]
         bot_name = bot_names[
@@ -226,7 +233,9 @@ async def handle_start_game(client_id: str, message: dict):
         ]
 
         bot_player = Player(id=bot_id, name=bot_name, is_bot=True, is_connected=True)
-        game.add_player(bot_player)
+        if not game.add_player(bot_player):
+            # Max players reached
+            break
         logger.info(f"Added bot {bot_name} to game {game_id}")
 
     # Try to start the game
@@ -418,13 +427,13 @@ async def handle_bot_turn_immediate(game_id: str):
     # Check if bot needs to answer a question
     last_message = game.messages[-1] if game.messages else None
     logger.info(
-        f"handle_bot_turn_immediate: Last message: {last_message.type if last_message else 'None'}, to_player: {last_message.to_player if last_message else 'None'}"
+        f"handle_bot_turn_immediate: Last message: {last_message.type if last_message else 'None'}, to_id: {last_message.to_id if last_message else 'None'}"
     )
 
     if (
         last_message
         and last_message.type == "question"
-        and last_message.to_player == current_player.id
+        and last_message.to_id == current_player.id
     ):
         # Bot needs to answer
         logger.info(
@@ -434,7 +443,7 @@ async def handle_bot_turn_immediate(game_id: str):
         # Use Claude API to generate answer
         game_state_dict = game.to_player_dict(current_player.id)
         question = last_message.content
-        questioner_id = last_message.from_player
+        questioner_id = last_message.from_id
 
         try:
             answer = await claude_client.generate_answer(

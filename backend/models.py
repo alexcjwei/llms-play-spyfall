@@ -42,8 +42,8 @@ class Location:
 class Message:
     id: str
     type: str  # "question" or "answer"
-    from_player: str
-    to_player: Optional[str]  # None for answers
+    from_id: str
+    to_id: Optional[str]  # None for answers
     content: str
     timestamp: float
 
@@ -166,8 +166,8 @@ class Game:
         message = Message(
             id=f"{time.time()}_{from_player_id}",
             type="question",
-            from_player=from_player_id,
-            to_player=to_player_id,
+            from_id=from_player_id,
+            to_id=to_player_id,
             content=content,
             timestamp=time.time()
         )
@@ -187,12 +187,12 @@ class Game:
         if self.current_turn != from_player_id:
             return False
 
-        # Create answer message
+        # Create answer message - answer goes back to the player who asked the question
         message = Message(
             id=f"{time.time()}_{from_player_id}",
             type="answer",
-            from_player=from_player_id,
-            to_player=None,
+            from_id=from_player_id,
+            to_id=self.last_questioned_by,
             content=content,
             timestamp=time.time()
         )
@@ -521,8 +521,8 @@ class Game:
                 {
                     "id": m.id,
                     "type": m.type,
-                    "from": m.from_player,
-                    "to": m.to_player,
+                    "from": m.from_id,
+                    "to": m.to_id,
                     "content": m.content,
                     "timestamp": m.timestamp
                 }

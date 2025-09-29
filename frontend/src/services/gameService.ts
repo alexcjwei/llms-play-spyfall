@@ -28,10 +28,11 @@ export class GameService {
     this.sendMessage(JSON.stringify(message));
   }
 
-  startGame(gameId: string): void {
+  startGame(gameId: string, playerCount?: number): void {
     const message: StartGameMessage = {
       type: 'start_game',
-      game_id: gameId
+      game_id: gameId,
+      player_count: playerCount
     };
     this.sendMessage(JSON.stringify(message));
   }

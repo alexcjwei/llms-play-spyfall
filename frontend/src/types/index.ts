@@ -112,6 +112,7 @@ export interface JoinGameMessage extends BaseMessage {
 export interface StartGameMessage extends BaseMessage {
   type: 'start_game';
   game_id: string;
+  player_count?: number;
 }
 
 export interface AskQuestionMessage extends BaseMessage {

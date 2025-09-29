@@ -2,7 +2,59 @@
 Prompt templates for LLM-powered bot behaviors in Spyfall
 """
 import json
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+
+
+class PromptFormatter:
+    """Modular components for shared prompt formatting functionality"""
+
+    @staticmethod
+    def get_player_by_id(game_state: Dict[str, Any], player_id: str) -> Dict[str, Any]:
+        """Get player data by ID with validation"""
+        player = next((p for p in game_state["players"] if p["id"] == player_id), None)
+        if not player:
+            raise ValueError(f"Player {player_id} not found in game state")
+        return player
+
+    @staticmethod
+    def build_role_context(is_spy: bool, location: str = "", role: str = "") -> str:
+        """Build role-specific context for spy vs non-spy players"""
+        if is_spy:
+            return "You are the SPY. You don't know the location and must figure it out without being detected."
+        else:
+            return f"You know the location is '{location}' and your role is '{role}'. Try to identify the spy."
+
+    @staticmethod
+    def build_player_mapping(game_state: Dict[str, Any], target_ids: List[str]) -> str:
+        """Build formatted list of available target players"""
+        mapping = ""
+        for player in game_state["players"]:
+            if player["id"] in target_ids:
+                mapping += f"- {player['id']}: {player['name']}\n"
+        return mapping
+
+    @staticmethod
+    def format_qa_history(game_state: Dict[str, Any], limit: Optional[int] = None, include_header: bool = True) -> str:
+        """Format Q&A message history with optional limit"""
+        messages = game_state.get("messages", [])
+        if limit:
+            messages = messages[-limit:]
+
+        if not messages:
+            return ""
+
+        qa_history = "Q&A History:\n" if include_header else ""
+        for msg in messages:
+            from_name = next((p["name"] for p in game_state["players"] if p["id"] == msg["from"]), msg["from"])
+            to_name = next((p["name"] for p in game_state["players"] if p["id"] == msg.get("to", "")), msg.get("to", "all"))
+            qa_history += f"- From {from_name} to {to_name}: {msg['content']}\n"
+
+        return qa_history
+
+    @staticmethod
+    def build_json_instruction(format_example: str) -> str:
+        """Build consistent JSON response instruction"""
+        return f"IMPORTANT: Respond with ONLY valid JSON, no additional text or explanation:\n\n{format_example}"
 
 
 def build_question_prompt(
@@ -21,36 +73,18 @@ def build_question_prompt(
     Returns:
         Formatted prompt string
     """
-    bot_player = next((p for p in game_state["players"] if p["id"] == bot_player_id), None)
-    if not bot_player:
-        raise ValueError(f"Bot player {bot_player_id} not found in game state")
-
+    bot_player = PromptFormatter.get_player_by_id(game_state, bot_player_id)
     bot_name = bot_player["name"]
+
     is_spy = game_state.get("isSpy", False)
     location = game_state.get("location", "Unknown")
     role = game_state.get("role", "Unknown")
 
-    # Build player mapping for available targets
-    player_mapping = ""
-    for player in game_state["players"]:
-        if player["id"] in available_target_ids:
-            player_mapping += f"- {player['id']}: {player['name']}\n"
+    player_mapping = PromptFormatter.build_player_mapping(game_state, available_target_ids)
+    qa_history = PromptFormatter.format_qa_history(game_state, limit=6, include_header=True)
 
-    # Get recent Q&A context
-    recent_messages = game_state.get("messages", [])[-6:]  # Last 6 messages for context
-    qa_history = ""
-    if recent_messages:
-        qa_history = "Recent Q&A:\n"
-        for msg in recent_messages:
-            from_name = next((p["name"] for p in game_state["players"] if p["id"] == msg["from"]), msg["from"])
-            to_name = next((p["name"] for p in game_state["players"] if p["id"] == msg.get("to", "")), msg.get("to", "all"))
-            qa_history += f"- {from_name} → {to_name}: {msg['content']}\n"
-
-    role_context = ""
-    if is_spy:
-        role_context = f"You are the SPY. You don't know the location and must figure it out without being detected."
-    else:
-        role_context = f"You know the location is '{location}' and your role is '{role}'. Try to identify the spy."
+    role_context = PromptFormatter.build_role_context(is_spy, location, role)
+    json_instruction = PromptFormatter.build_json_instruction('{"target_id": "player_id", "question": "your question", "reasoning": "brief explanation (private, will not be shared)" }')
 
     prompt = f"""You are {bot_name} playing Spyfall. {role_context}
 
@@ -65,9 +99,7 @@ Strategy:
 
 Choose a target player ID and generate an appropriate question.
 
-IMPORTANT: Respond with ONLY valid JSON, no additional text or explanation:
-
-{{"target_id": "player_id", "question": "your question"}}"""
+{json_instruction}"""
 
     return prompt
 
@@ -90,13 +122,8 @@ def build_answer_prompt(
     Returns:
         Formatted prompt string
     """
-    bot_player = next((p for p in game_state["players"] if p["id"] == bot_player_id), None)
-    questioner = next((p for p in game_state["players"] if p["id"] == questioner_id), None)
-
-    if not bot_player:
-        raise ValueError(f"Bot player {bot_player_id} not found in game state")
-    if not questioner:
-        raise ValueError(f"Questioner {questioner_id} not found in game state")
+    bot_player = PromptFormatter.get_player_by_id(game_state, bot_player_id)
+    questioner = PromptFormatter.get_player_by_id(game_state, questioner_id)
 
     bot_name = bot_player["name"]
     questioner_name = questioner["name"]
@@ -104,22 +131,16 @@ def build_answer_prompt(
     location = game_state.get("location", "Unknown")
     role = game_state.get("role", "Unknown")
 
-    # Get all Q&A history for context
-    messages = game_state.get("messages", [])
-    qa_history = ""
-    if messages:
-        qa_history = "Q&A History:\n"
-        for msg in messages:
-            from_name = next((p["name"] for p in game_state["players"] if p["id"] == msg["from"]), msg["from"])
-            to_name = next((p["name"] for p in game_state["players"] if p["id"] == msg.get("to", "")), msg.get("to", "all"))
-            qa_history += f"- {from_name} → {to_name}: {msg['content']}\n"
+    qa_history = PromptFormatter.format_qa_history(game_state)
+    if qa_history:
         qa_history += "\n"
 
-    role_context = ""
     if is_spy:
         role_context = "You are the SPY. You don't know the location. Answer carefully to avoid detection while trying to learn clues."
     else:
         role_context = f"You know the location is '{location}' and your role is '{role}'. Answer naturally but watch for spy behavior."
+
+    json_instruction = PromptFormatter.build_json_instruction('{"answer": "your answer", "reasoning": "brief explanation (private, will not be shared)"}')
 
     prompt = f"""You are {bot_name} playing Spyfall. {role_context}
 
@@ -127,9 +148,7 @@ def build_answer_prompt(
 
 If you're the spy, be careful not to reveal your ignorance. If you know the location, answer in a way that makes sense for your role without revealing it to the spy.
 
-IMPORTANT: Respond with ONLY valid JSON, no additional text or explanation:
-
-{{"answer": "your answer"}}"""
+{json_instruction}"""
 
     return prompt
 
@@ -150,34 +169,24 @@ def build_accusation_prompt(
     Returns:
         Formatted prompt string
     """
-    bot_player = next((p for p in game_state["players"] if p["id"] == bot_player_id), None)
-    if not bot_player:
-        raise ValueError(f"Bot player {bot_player_id} not found in game state")
-
+    bot_player = PromptFormatter.get_player_by_id(game_state, bot_player_id)
     bot_name = bot_player["name"]
+
     is_spy = game_state.get("isSpy", False)
     location = game_state.get("location", "Unknown")
     role = game_state.get("role", "Unknown")
 
-    # Build player mapping for potential targets
-    player_mapping = ""
-    for player in game_state["players"]:
-        if player["id"] in potential_target_ids:
-            player_mapping += f"- {player['id']}: {player['name']}\n"
+    player_mapping = PromptFormatter.build_player_mapping(game_state, potential_target_ids)
+    qa_analysis = PromptFormatter.format_qa_history(game_state, include_header=True)
+    if qa_analysis:
+        qa_analysis = qa_analysis.replace("Q&A History:", "Q&A Analysis:")
 
-    # Analyze Q&A history for suspicious behavior
-    messages = game_state.get("messages", [])
-    qa_analysis = "Q&A Analysis:\n"
-    for msg in messages:
-        from_name = next((p["name"] for p in game_state["players"] if p["id"] == msg["from"]), msg["from"])
-        to_name = next((p["name"] for p in game_state["players"] if p["id"] == msg.get("to", "")), msg.get("to", "all"))
-        qa_analysis += f"- {from_name} → {to_name}: {msg['content']}\n"
-
-    role_context = ""
     if is_spy:
         role_context = "You are the SPY. Consider accusing someone to deflect suspicion or if you think you've been found out."
     else:
         role_context = f"You know the location is '{location}'. Look for players who gave vague, evasive, or inconsistent answers."
+
+    json_instruction = PromptFormatter.build_json_instruction('{"should_accuse": true/false, "target_id": "player_id or null", "reasoning": "brief explanation"}')
 
     prompt = f"""You are {bot_name} playing Spyfall. {role_context}
 
@@ -194,9 +203,7 @@ Consider:
 - Players asking fishing questions
 - Inconsistent behavior
 
-Respond with JSON:
-
-{{"should_accuse": true/false, "target_id": "player_id or null", "reasoning": "brief explanation"}}"""
+{json_instruction}"""
 
     return prompt
 
@@ -219,11 +226,9 @@ def build_voting_prompt(
     Returns:
         Formatted prompt string
     """
-    bot_player = next((p for p in game_state["players"] if p["id"] == bot_player_id), None)
-    if not bot_player:
-        raise ValueError(f"Bot player {bot_player_id} not found in game state")
-
+    bot_player = PromptFormatter.get_player_by_id(game_state, bot_player_id)
     bot_name = bot_player["name"]
+
     is_spy = game_state.get("isSpy", False)
     location = game_state.get("location", "Unknown")
     role = game_state.get("role", "Unknown")
@@ -231,24 +236,17 @@ def build_voting_prompt(
     # Get accusation details
     accusation = game_state.get("currentAccusation", {})
     accuser_id = accusation.get("accuser", "")
-    accuser = next((p for p in game_state["players"] if p["id"] == accuser_id), None)
+    accuser = PromptFormatter.get_player_by_id(game_state, accuser_id) if accuser_id else None
     accuser_name = accuser["name"] if accuser else "Unknown"
 
-    # Get all Q&A history for context
-    messages = game_state.get("messages", [])
-    qa_history = ""
-    if messages:
-        qa_history = "Q&A History:\n"
-        for msg in messages:
-            from_name = next((p["name"] for p in game_state["players"] if p["id"] == msg["from"]), msg["from"])
-            to_name = next((p["name"] for p in game_state["players"] if p["id"] == msg.get("to", "")), msg.get("to", "all"))
-            qa_history += f"- {from_name} → {to_name}: {msg['content']}\n"
+    qa_history = PromptFormatter.format_qa_history(game_state)
 
-    role_context = ""
     if is_spy:
         role_context = "You are the SPY. You don't know the location. Vote strategically to deflect suspicion or eliminate threats."
     else:
         role_context = f"You know the location is '{location}' and your role is '{role}'. Vote based on who seems most likely to be the spy."
+
+    json_instruction = PromptFormatter.build_json_instruction('{"vote_guilty": true/false, "reasoning": "brief explanation of your decision"}')
 
     prompt = f"""You are {bot_name} playing Spyfall. {role_context}
 
@@ -262,8 +260,6 @@ Consider all players' behavior in the Q&A history:
 - Who seemed unfamiliar with the location?
 - Who behaved most suspiciously overall?
 
-IMPORTANT: Respond with ONLY valid JSON, no additional text or explanation:
-
-{{"vote_guilty": true/false, "reasoning": "brief explanation of your decision"}}"""
+{json_instruction}"""
 
     return prompt
