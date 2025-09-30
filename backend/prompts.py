@@ -1,8 +1,8 @@
 """
 Prompt templates for LLM-powered bot behaviors in Spyfall
 """
-import json
 from typing import List, Dict, Any, Optional
+from models import LOCATIONS, Location
 
 
 class PromptFormatter:
@@ -19,22 +19,20 @@ class PromptFormatter:
     @staticmethod
     def build_role_context(is_spy: bool, location: str = "", role: str = "") -> str:
         """Build role-specific context for spy vs non-spy players"""
-        if is_spy:
-            return "You are the SPY. You don't know the location and must figure it out without being detected."
-        else:
-            return f"You know the location is '{location}' and your role is '{role}'. Try to identify the spy."
+        spy = "- You are the SPY\n" if is_spy else ""
+        return f"{spy}- Location: {location}\n- Role: {role}"
 
     @staticmethod
     def build_player_mapping(game_state: Dict[str, Any], target_ids: List[str]) -> str:
         """Build formatted list of available target players"""
-        mapping = ""
+        mappings = ""
         for player in game_state["players"]:
             if player["id"] in target_ids:
-                mapping += f"- {player['id']}: {player['name']}\n"
-        return mapping
+                mappings += f"- {player['name']}: {player['id']}\n"
+        return mappings
 
     @staticmethod
-    def format_qa_history(game_state: Dict[str, Any], limit: Optional[int] = None, include_header: bool = True) -> str:
+    def format_qa_history(game_state: Dict[str, Any], limit: Optional[int] = None) -> str:
         """Format Q&A message history with optional limit"""
         messages = game_state.get("messages", [])
         if limit:
@@ -43,18 +41,36 @@ class PromptFormatter:
         if not messages:
             return ""
 
-        qa_history = "Q&A History:\n" if include_header else ""
+        qa_history = ""
         for msg in messages:
             from_name = next((p["name"] for p in game_state["players"] if p["id"] == msg["from"]), msg["from"])
             to_name = next((p["name"] for p in game_state["players"] if p["id"] == msg.get("to", "")), msg.get("to", "all"))
-            qa_history += f"- From {from_name} to {to_name}: {msg['content']}\n"
+            qa_history += f"- From {from_name} to {to_name}: \"{msg['content']}\"\n"
 
         return qa_history
 
     @staticmethod
-    def build_json_instruction(format_example: str) -> str:
-        """Build consistent JSON response instruction"""
-        return f"IMPORTANT: Respond with ONLY valid JSON, no additional text or explanation:\n\n{format_example}"
+    def build_xml_instruction(xml_format_example: str) -> str:
+        """Build consistent XML response instruction with thinking"""
+        return f"""
+
+{xml_format_example}"""
+    
+    @staticmethod
+    def get_game_description() -> str:
+        return """Spyfall is a social deduction game. Each round, players are assigned a location and role. One player is the spy who doesn't know the location.
+- **The spy’s objective** is to avoid exposure until the end of a given round or identify the current location.
+- **The non-spies’ objective** is to establish consensus on the identity of the spy and expose him or her.
+
+Strategies:
+- The objectives of the non-spy players are to identify the spy and avoid revealing their location. Therefore, the non-spies should refrain from being too explicit in their questions: (for example, “How much cash did the robbers steal yesterday?” The spy will instantly identify the location as the bank). However, when a player’s questions and answers are too vague, other players might start suspecting them of being the spy, enabling the real spy to win.
+- The spy’s objective is to listen as carefully as possible to what the other players say and do their best to avoid blowing their cover while also trying to identify the location before eight minutes have passed. A spy who doesn’t attempt to guess the location is taking a risk — it is entirely possible that the other players will identify them after discussion and voting."""
+
+    @staticmethod
+    def format_game_locations(locations: List[Location]) -> str:
+        def format_location(location: Location):
+            return f"- {location.name}"
+        return "\n".join(map(format_location, locations))
 
 
 def build_question_prompt(
@@ -81,25 +97,38 @@ def build_question_prompt(
     role = game_state.get("role", "Unknown")
 
     player_mapping = PromptFormatter.build_player_mapping(game_state, available_target_ids)
-    qa_history = PromptFormatter.format_qa_history(game_state, limit=6, include_header=True)
+    qa_history = PromptFormatter.format_qa_history(game_state, limit=6)
 
     role_context = PromptFormatter.build_role_context(is_spy, location, role)
-    json_instruction = PromptFormatter.build_json_instruction('{"target_id": "player_id", "question": "your question", "reasoning": "brief explanation (private, will not be shared)" }')
+    game_description = PromptFormatter.get_game_description()
+    game_locations = PromptFormatter.format_game_locations(LOCATIONS)
+    xml_instruction = PromptFormatter.build_xml_instruction("""<scratchpad>
+[Your reasoning process here - consider the game state, your role, and strategic implications]
+</scratchpad>
+<target_id>player_id</target_id>
+<question>your question</question>""")
 
-    prompt = f"""You are {bot_name} playing Spyfall. {role_context}
+    prompt = f"""You are {bot_name} playing a game of Spyfall. It is your turn to ask another player a question. 
 
+GAME DESCRIPTION:
+{game_description}
+
+LIST OF ALL GAME LOCATIONS:
+{game_locations}
+
+YOUR CARD:
+{role_context}
+
+PREVIOUS Q&A:
 {qa_history}
 
-Available players to question:
+WHO YOU CAN ASK:
+You must choose the id of ONE of these players
 {player_mapping}
 
-Strategy:
-- Spy: Ask questions to learn the location without revealing ignorance
-- Non-spy: Ask questions that would be easy for location-knowers but hard for spies
-
-Choose a target player ID and generate an appropriate question.
-
-{json_instruction}"""
+YOUR TASK:
+Think through your decision in the scratchpad, then provide your target player and brief question in the following format:
+{xml_instruction}"""
 
     return prompt
 
@@ -132,23 +161,33 @@ def build_answer_prompt(
     role = game_state.get("role", "Unknown")
 
     qa_history = PromptFormatter.format_qa_history(game_state)
-    if qa_history:
-        qa_history += "\n"
+    role_context = PromptFormatter.build_role_context(is_spy, location, role)
+    game_description = PromptFormatter.get_game_description()
+    game_locations = PromptFormatter.format_game_locations(LOCATIONS)
+    xml_instruction = PromptFormatter.build_xml_instruction("""<scratchpad>
+[Your reasoning process here - consider the game state, your role, and strategic implications]
+</scratchpad><answer>your answer</answer>""")
 
-    if is_spy:
-        role_context = "You are the SPY. You don't know the location. Answer carefully to avoid detection while trying to learn clues."
-    else:
-        role_context = f"You know the location is '{location}' and your role is '{role}'. Answer naturally but watch for spy behavior."
+    prompt = f"""You are {bot_name} playing Spyfall. It is your turn to answer another player's question.
 
-    json_instruction = PromptFormatter.build_json_instruction('{"answer": "your answer", "reasoning": "brief explanation (private, will not be shared)"}')
+GAME DESCRIPTION:
+{game_description}
 
-    prompt = f"""You are {bot_name} playing Spyfall. {role_context}
+LIST OF ALL GAME LOCATIONS:
+{game_locations}
 
-{qa_history}{questioner_name} asked you: "{question}"
+YOUR CARD:
+{role_context}
 
-If you're the spy, be careful not to reveal your ignorance. If you know the location, answer in a way that makes sense for your role without revealing it to the spy.
+PREVIOUS Q&A:
+{qa_history}
 
-{json_instruction}"""
+QUESTION:
+{questioner_name} asked you: "{question}"
+
+YOUR TASK:
+Think through your response in the scratchpad, then provide your brief answer in the following format:
+{xml_instruction}"""
 
     return prompt
 
@@ -169,37 +208,7 @@ def build_accusation_prompt(
     Returns:
         Formatted prompt string
     """
-    bot_player = PromptFormatter.get_player_by_id(game_state, bot_player_id)
-    bot_name = bot_player["name"]
-
-    is_spy = game_state.get("isSpy", False)
-    location = game_state.get("location", "Unknown")
-    role = game_state.get("role", "Unknown")
-
-    player_mapping = PromptFormatter.build_player_mapping(game_state, potential_target_ids)
-    qa_analysis = PromptFormatter.format_qa_history(game_state, include_header=True)
-    if qa_analysis:
-        qa_analysis = qa_analysis.replace("Q&A History:", "Q&A Analysis:")
-
-    if is_spy:
-        role_context = "You are the SPY. Consider accusing someone to deflect suspicion or if you think you've been found out."
-    else:
-        role_context = f"You know the location is '{location}'. Look for players who gave vague, evasive, or inconsistent answers."
-
-    json_instruction = PromptFormatter.build_json_instruction('{"should_accuse": true/false, "target_id": "player_id or null", "reasoning": "brief explanation"}')
-
-    prompt = f"""You are {bot_name} playing Spyfall. {role_context}
-
-{qa_analysis}
-
-Players you can accuse:
-{player_mapping}
-
-Analyze the Q&A history. Should you make an accusation? If yes, who seems most suspicious?
-
-{json_instruction}"""
-
-    return prompt
+    return "Not implemented."
 
 
 def build_voting_prompt(
@@ -234,20 +243,33 @@ def build_voting_prompt(
     accuser_name = accuser["name"] if accuser else "Unknown"
 
     qa_history = PromptFormatter.format_qa_history(game_state)
+    role_context = PromptFormatter.build_role_context(is_spy, location, role)
+    game_description = PromptFormatter.get_game_description()
+    game_locations = PromptFormatter.format_game_locations(LOCATIONS)
 
-    if is_spy:
-        role_context = "You are the SPY. You don't know the location. Vote strategically to deflect suspicion or eliminate threats."
-    else:
-        role_context = f"You know the location is '{location}' and your role is '{role}'. Vote based on who seems most likely to be the spy."
+    xml_instruction = PromptFormatter.build_xml_instruction("""<scratchpad>
+[Your reasoning process here - consider the game state, your role, and strategic implications]
+</scratchpad><vote_guilty>true</vote_guilty> <!-- or false -->""")
 
-    json_instruction = PromptFormatter.build_json_instruction('{"vote_guilty": true/false, "reasoning": "brief explanation of your decision"}')
+    prompt = f"""You are {bot_name} playing Spyfall and need to vote on an accusation that has been made.
+    
+GAME DESCRIPTION:
+{game_description}
 
-    prompt = f"""You are {bot_name} playing Spyfall. {role_context}
+LIST OF ALL GAME LOCATIONS:
+{game_locations}
 
+YOUR CARD:
+{role_context}
+
+PREVIOUS Q&A:
 {qa_history}
 
-{accuser_name} has accused {accused_name} of being the spy. You must vote GUILTY ({accused_name} is the spy) or INNOCENT ({accused_name} is not the spy).
+ACCUSATION:
+{accuser_name} has accused {accused_name} of being the spy.
 
-{json_instruction}"""
+YOUR TASK:
+Think through whether to vote {accused_name} guilty of being the spy, then provide your vote in the following format:
+{xml_instruction}"""
 
     return prompt

@@ -15,7 +15,6 @@ class TestClaudeClient:
         monkeypatch.setenv("CLAUDE_API_KEY", "test-key")
         client = ClaudeClient()
         assert client.api_key == "test-key"
-        assert client.model == "claude-3-5-haiku-20241022"
 
     def test_init_without_api_key(self, monkeypatch):
         """Test initialization fails without API key"""
@@ -106,12 +105,17 @@ class TestClaudeClient:
         """Test successful question generation"""
         monkeypatch.setenv("CLAUDE_API_KEY", "test-key")
 
-        # Mock successful JSON response
-        json_response = '{"target_id": "human1", "question": "What do you think about the safety procedures here?"}'
+        # Mock successful XML response
+        xml_response = '''<scratchpad>
+I need to ask a strategic question to gather information about whether other players know the location.
+</scratchpad>
+
+<target_id>human1</target_id>
+<question>What do you think about the safety procedures here?</question>'''
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "content": [{"text": json_response}]
+            "content": [{"text": xml_response}]
         }
 
         with patch("httpx.AsyncClient") as mock_client:
@@ -131,11 +135,16 @@ class TestClaudeClient:
         monkeypatch.setenv("CLAUDE_API_KEY", "test-key")
 
         # Mock response with invalid target
-        json_response = '{"target_id": "invalid_player", "question": "Test question"}'
+        xml_response = '''<scratchpad>
+I need to ask a question but I'll choose an invalid target.
+</scratchpad>
+
+<target_id>invalid_player</target_id>
+<question>Test question</question>'''
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "content": [{"text": json_response}]
+            "content": [{"text": xml_response}]
         }
 
         with patch("httpx.AsyncClient") as mock_client:
@@ -151,12 +160,16 @@ class TestClaudeClient:
         """Test successful answer generation"""
         monkeypatch.setenv("CLAUDE_API_KEY", "test-key")
 
-        # Mock successful JSON response
-        json_response = '{"answer": "I really enjoy ensuring all the equipment is functioning properly."}'
+        # Mock successful XML response
+        xml_response = '''<scratchpad>
+I need to answer in a way that shows I know the location but doesn't give too much away to the spy.
+</scratchpad>
+
+<answer>I really enjoy ensuring all the equipment is functioning properly.</answer>'''
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "content": [{"text": json_response}]
+            "content": [{"text": xml_response}]
         }
 
         with patch("httpx.AsyncClient") as mock_client:

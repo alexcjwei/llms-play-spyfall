@@ -67,10 +67,8 @@ class TestClaudeIntegration:
         )
 
         assert result is not None
-        should_vote_guilty, reasoning = result
+        should_vote_guilty = result
         assert isinstance(should_vote_guilty, bool)
-        assert isinstance(reasoning, str)
-        assert len(reasoning) > 0
 
     @pytest.mark.asyncio
     async def test_spy_voting_decision_integration(self, mock_spy_voting_game_state):
@@ -80,7 +78,5 @@ class TestClaudeIntegration:
         )
 
         assert result is not None
-        should_vote_guilty, reasoning = result
+        should_vote_guilty = result
         assert isinstance(should_vote_guilty, bool)
-        assert isinstance(reasoning, str)
-        assert len(reasoning) > 0

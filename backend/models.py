@@ -110,13 +110,17 @@ class Game:
 
         return True
 
-    def start_game(self) -> bool:
+    def start_game(self, random_order: bool = True) -> bool:
         """Start the game with role assignment. Minimum 3 players required."""
         if len(self.players) < 3:
             return False
 
         if self.status != GameStatus.WAITING:
             return False
+
+        # Shuffle players
+        if random_order:
+            random.shuffle(self.players)
 
         # Assign spy and location roles
         self._assign_roles()

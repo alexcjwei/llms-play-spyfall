@@ -34,6 +34,7 @@ active_games: dict[str, Game] = {}
 connected_clients = {}
 pending_tasks: dict[str, asyncio.Task] = {}  # game_id -> pending async task
 
+
 # Start timer checking task
 async def check_game_timers():
     """Periodically check for expired game timers"""
@@ -50,6 +51,7 @@ async def check_game_timers():
         except Exception as e:
             logger.error(f"Error in timer checking: {e}")
             await asyncio.sleep(1)
+
 
 # Global variable to store the timer task
 timer_task = None
@@ -240,7 +242,10 @@ async def handle_start_game(client_id: str, message: dict):
 
     # Validate player count
     if player_count < 3 or player_count > 8:
-        error_response = {"type": "start_error", "message": "Player count must be between 3 and 8"}
+        error_response = {
+            "type": "start_error",
+            "message": "Player count must be between 3 and 8",
+        }
         await manager.send_personal_message(json.dumps(error_response), client_id)
         return
 
@@ -603,15 +608,20 @@ async def handle_bot_voting(game_id: str):
         await asyncio.sleep(1)
 
         # Get LLM-based voting decision
-        accused_player = next((p for p in game.players if p.id == game.current_accusation.accused_id), None)
+        accused_player = next(
+            (p for p in game.players if p.id == game.current_accusation.accused_id),
+            None,
+        )
         accused_name = accused_player.name if accused_player else "Unknown"
-        vote_decision = await claude_client.should_vote_guilty(
-            game.to_player_dict(bot.id), bot.id, game.current_accusation.accused_id, accused_name
+        vote = await claude_client.should_vote_guilty(
+            game.to_player_dict(bot.id),
+            bot.id,
+            game.current_accusation.accused_id,
+            accused_name,
         )
 
-        if vote_decision:
-            vote, reasoning = vote_decision
-            logger.info(f"Bot {bot.name} voting decision: {vote} - {reasoning}")
+        if vote is not None:
+            logger.info(f"Bot {bot.name} voting decision: {vote}")
         else:
             # Fallback to random if LLM fails
             vote = random.choice([True, False])
@@ -823,19 +833,28 @@ async def handle_end_of_round_bot_voting(game_id: str):
         await asyncio.sleep(1)
 
         # Get LLM-based voting decision
-        accused_player = next((p for p in game.players if p.id == game.current_accusation.accused_id), None)
+        accused_player = next(
+            (p for p in game.players if p.id == game.current_accusation.accused_id),
+            None,
+        )
         accused_name = accused_player.name if accused_player else "Unknown"
-        vote_decision = await claude_client.should_vote_guilty(
-            game.to_player_dict(bot.id), bot.id, game.current_accusation.accused_id, accused_name
+        vote = await claude_client.should_vote_guilty(
+            game.to_player_dict(bot.id),
+            bot.id,
+            game.current_accusation.accused_id,
+            accused_name,
         )
 
-        if vote_decision:
-            vote, reasoning = vote_decision
-            logger.info(f"End-of-round bot {bot.name} voting decision: {vote} - {reasoning}")
+        if vote is not None:
+            logger.info(
+                f"End-of-round bot {bot.name} voting decision: {vote}"
+            )
         else:
             # Fallback to random if LLM fails
             vote = random.choice([True, False])
-            logger.warning(f"End-of-round bot {bot.name} using fallback random vote: {vote}")
+            logger.warning(
+                f"End-of-round bot {bot.name} using fallback random vote: {vote}"
+            )
 
         if game.vote_on_end_of_round_accusation(bot.id, vote):
             logger.info(
@@ -926,12 +945,14 @@ async def handle_client_disconnect(client_id: str):
 if not os.getenv("DEBUG", "False").lower() == "true":
     app.mount("/", StaticFiles(directory="../frontend/build", html=True), name="static")
 
+
 @app.on_event("startup")
 async def startup_event():
     """Start background tasks when the server starts"""
     global timer_task
     timer_task = asyncio.create_task(check_game_timers())
     logger.info("Started timer checking task")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -944,6 +965,7 @@ async def shutdown_event():
         except asyncio.CancelledError:
             pass
     logger.info("Stopped timer checking task")
+
 
 if __name__ == "__main__":
     import uvicorn

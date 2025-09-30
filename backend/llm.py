@@ -4,6 +4,7 @@ LLM integration module for Claude API
 import os
 import json
 import logging
+import re
 from typing import Optional, Dict, Any, List, Tuple
 import httpx
 from dotenv import load_dotenv
@@ -23,7 +24,7 @@ class ClaudeClient:
             raise ValueError("CLAUDE_API_KEY environment variable is required")
 
         self.base_url = "https://api.anthropic.com/v1/messages"
-        self.model = "claude-3-5-haiku-20241022"
+        self.model = "claude-3-7-sonnet-20250219"
         self.headers = {
             "Content-Type": "application/json",
             "x-api-key": self.api_key,
@@ -97,6 +98,51 @@ class ClaudeClient:
         except Exception as e:
             logger.error(f"Unexpected error calling Claude API: {type(e).__name__}: {e}")
             return None
+
+    def extract_xml_tags(self, completion: str, tags: List[str]) -> Optional[Dict[str, str]]:
+        """
+        Extract XML tags from completion text
+
+        Args:
+            completion: The completion text containing XML tags
+            tags: List of tag names to extract
+
+        Returns:
+            Dictionary mapping tag names to their values, or None if parsing fails
+        """
+        try:
+            result = {}
+            for tag in tags:
+                pattern = f'<{tag}>(.*?)</{tag}>'
+                match = re.search(pattern, completion, re.DOTALL)
+                if match:
+                    result[tag] = match.group(1).strip()
+                else:
+                    logger.warning(f"XML tag '{tag}' not found in completion")
+                    return None
+            return result
+        except Exception as e:
+            logger.error(f"Failed to parse XML tags from completion: {e}")
+            return None
+
+    async def get_xml_completion(self, prompt: str, tags: List[str], max_tokens: int = 1024, temperature: float = 0.7) -> Optional[Dict[str, str]]:
+        """
+        Get XML completion from Claude API
+
+        Args:
+            prompt: The prompt to send to Claude (should request XML response)
+            tags: List of XML tag names to extract from response
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature
+
+        Returns:
+            Dictionary mapping tag names to their values, or None if error
+        """
+        completion = await self.get_completion(prompt, max_tokens, temperature)
+        if not completion:
+            return None
+
+        return self.extract_xml_tags(completion, tags)
 
     async def get_json_completion(
         self,
@@ -177,7 +223,7 @@ class ClaudeClient:
         """
         try:
             prompt = build_question_prompt(game_state, bot_player_id, available_target_ids)
-            response = await self.get_json_completion(prompt, max_tokens=512, temperature=0.8)
+            response = await self.get_xml_completion(prompt, ["target_id", "question"], max_tokens=512, temperature=0.8)
 
             if response and "target_id" in response and "question" in response:
                 target_id = response["target_id"]
@@ -190,7 +236,7 @@ class ClaudeClient:
                     logger.warning(f"Bot question generation: Invalid target selected. Bot chose '{target_id}' but available targets are {available_target_ids}")
                     return None
 
-            logger.warning(f"Bot question generation: Invalid response format. Expected {{target_id, question}} but got: {response}")
+            logger.warning(f"Bot question generation: Invalid response format. Expected target_id and question tags but got: {response}")
             return None
 
         except Exception as e:
@@ -218,12 +264,12 @@ class ClaudeClient:
         """
         try:
             prompt = build_answer_prompt(game_state, bot_player_id, question, questioner_id)
-            response = await self.get_json_completion(prompt, max_tokens=256, temperature=0.7)
+            response = await self.get_xml_completion(prompt, ["answer"], max_tokens=256, temperature=0.7)
 
             if response and "answer" in response:
                 return response["answer"]
 
-            logger.warning(f"Bot answer generation: Invalid response format. Expected {{answer}} but got: {response}")
+            logger.warning(f"Bot answer generation: Invalid response format. Expected answer tag but got: {response}")
             return None
 
         except Exception as e:
@@ -249,23 +295,29 @@ class ClaudeClient:
         """
         try:
             prompt = build_accusation_prompt(game_state, bot_player_id, potential_target_ids)
-            response = await self.get_json_completion(prompt, max_tokens=512, temperature=0.6)
+            response = await self.get_xml_completion(prompt, ["should_accuse", "target_id"], max_tokens=512, temperature=0.6)
 
             if response and "should_accuse" in response:
-                should_accuse = response["should_accuse"]
-                target_id = response.get("target_id")
-                reasoning = response.get("reasoning", "")
+                should_accuse_str = response["should_accuse"].lower()
+                target_id = response.get("target_id", "")
+
+                # Convert string to boolean
+                if should_accuse_str in ["true", "false"]:
+                    should_accuse = should_accuse_str == "true"
+                else:
+                    logger.warning(f"Bot accusation decision: Invalid should_accuse value. Expected 'true' or 'false' but got: {should_accuse_str}")
+                    return False, "", "Invalid accusation decision"
 
                 # Validate target_id if accusation is being made
                 if should_accuse and target_id and target_id in potential_target_ids:
-                    return True, target_id, reasoning
+                    return True, target_id, ""
                 elif not should_accuse:
-                    return False, "", reasoning
+                    return False, "", ""
                 else:
                     logger.warning(f"Bot accusation decision: Invalid target selected. Bot chose '{target_id}' but available targets are {potential_target_ids}")
                     return False, "", "Invalid target selected"
 
-            logger.warning(f"Bot accusation decision: Invalid response format. Expected {{should_accuse, target_id, reasoning}} but got: {response}")
+            logger.warning(f"Bot accusation decision: Invalid response format. Expected should_accuse and target_id tags but got: {response}")
             return None
 
         except Exception as e:
@@ -278,7 +330,7 @@ class ClaudeClient:
         bot_player_id: str,
         accused_id: str,
         accused_name: str
-    ) -> Optional[Tuple[bool, str]]:
+    ) -> Optional[bool]:
         """
         Determine if bot should vote guilty on an accusation
 
@@ -293,19 +345,19 @@ class ClaudeClient:
         """
         try:
             prompt = build_voting_prompt(game_state, bot_player_id, accused_id, accused_name)
-            response = await self.get_json_completion(prompt, max_tokens=512, temperature=0.6)
+            response = await self.get_xml_completion(prompt, ["vote_guilty"], max_tokens=512, temperature=0.6)
 
             if response and "vote_guilty" in response:
-                vote_guilty = response["vote_guilty"]
-                reasoning = response.get("reasoning", "")
+                vote_guilty_str = response["vote_guilty"].lower()
 
-                if isinstance(vote_guilty, bool):
-                    return vote_guilty, reasoning
+                if vote_guilty_str in ["true", "false"]:
+                    vote_guilty = vote_guilty_str == "true"
+                    return vote_guilty
                 else:
-                    logger.warning(f"Bot voting decision: Invalid vote_guilty type. Expected boolean but got {type(vote_guilty)}: {vote_guilty}")
+                    logger.warning(f"Bot voting decision: Invalid vote_guilty value. Expected 'true' or 'false' but got: {vote_guilty_str}")
                     return None
 
-            logger.warning(f"Bot voting decision: Invalid response format. Expected {{vote_guilty, reasoning}} but got: {response}")
+            logger.warning(f"Bot voting decision: Invalid response format. Expected vote_guilty tag but got: {response}")
             return None
 
         except Exception as e:
