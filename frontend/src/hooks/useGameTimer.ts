@@ -26,7 +26,7 @@ export const useGameTimer = (serverTimerState?: TimerState): UseGameTimerReturn 
 
   // Client-side countdown
   useEffect(() => {
-    if (!serverTimerState) {
+    if (!serverTimerState?.is_running || !serverTimerState.status) {
       return;
     }
 
@@ -71,13 +71,6 @@ export const useGameTimer = (serverTimerState?: TimerState): UseGameTimerReturn 
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = Math.floor(seconds % 60);
     return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
-  };
-
-  // Get color class based on remaining time
-  const getTimeColor = (percentage: number): string => {
-    if (percentage > 50) return 'text-green-600';
-    if (percentage > 25) return 'text-yellow-600';
-    return 'text-red-600';
   };
 
   return {

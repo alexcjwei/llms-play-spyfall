@@ -1,6 +1,4 @@
-"""
-LLM integration module for Claude API
-"""
+"""LLM integration service for Claude API"""
 import os
 import json
 import logging
@@ -8,15 +6,15 @@ import re
 from typing import Optional, Dict, Any, List, Tuple
 import httpx
 from dotenv import load_dotenv
-from prompts import build_question_prompt, build_answer_prompt, build_accusation_prompt, build_voting_prompt
 
 # Load environment variables
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-class ClaudeClient:
-    """Client for interacting with Claude API"""
+
+class LLMService:
+    """Service for interacting with Claude API for bot AI"""
 
     def __init__(self):
         self.api_key = os.getenv('CLAUDE_API_KEY')
@@ -208,7 +206,8 @@ class ClaudeClient:
         self,
         game_state: Dict[str, Any],
         bot_player_id: str,
-        available_target_ids: List[str]
+        available_target_ids: List[str],
+        prompt_builder
     ) -> Optional[Tuple[str, str]]:
         """
         Generate a question for a bot player
@@ -217,12 +216,13 @@ class ClaudeClient:
             game_state: Current game state
             bot_player_id: ID of the bot player asking the question
             available_target_ids: List of player IDs that can be questioned
+            prompt_builder: Prompt builder function
 
         Returns:
             Tuple of (target_player_id, question) or None if error
         """
         try:
-            prompt = build_question_prompt(game_state, bot_player_id, available_target_ids)
+            prompt = prompt_builder(game_state, bot_player_id, available_target_ids)
             response = await self.get_xml_completion(prompt, ["target_id", "question"], max_tokens=512, temperature=0.8)
 
             if response and "target_id" in response and "question" in response:
@@ -248,7 +248,8 @@ class ClaudeClient:
         game_state: Dict[str, Any],
         bot_player_id: str,
         question: str,
-        questioner_id: str
+        questioner_id: str,
+        prompt_builder
     ) -> Optional[str]:
         """
         Generate an answer to a question for a bot player
@@ -258,18 +259,26 @@ class ClaudeClient:
             bot_player_id: ID of the bot player answering
             question: The question being asked
             questioner_id: ID of the player asking the question
+            prompt_builder: Prompt builder function
 
         Returns:
             The answer string or None if error
         """
         try:
-            prompt = build_answer_prompt(game_state, bot_player_id, question, questioner_id)
-            response = await self.get_xml_completion(prompt, ["answer"], max_tokens=256, temperature=0.7)
+            prompt = prompt_builder(game_state, bot_player_id, question, questioner_id)
+            response = await self.get_xml_completion(prompt, ["answer"], max_tokens=512, temperature=0.7)
 
             if response and "answer" in response:
                 return response["answer"]
 
-            logger.warning(f"Bot answer generation: Invalid response format. Expected answer tag but got: {response}")
+            # Retry with higher token limit if response was incomplete
+            logger.warning(f"Bot answer generation: First attempt failed or incomplete. Retrying with higher token limit...")
+            response = await self.get_xml_completion(prompt, ["answer"], max_tokens=1024, temperature=0.7)
+
+            if response and "answer" in response:
+                return response["answer"]
+
+            logger.warning(f"Bot answer generation: Invalid response format after retry. Expected answer tag but got: {response}")
             return None
 
         except Exception as e:
@@ -280,7 +289,8 @@ class ClaudeClient:
         self,
         game_state: Dict[str, Any],
         bot_player_id: str,
-        potential_target_ids: List[str]
+        potential_target_ids: List[str],
+        prompt_builder
     ) -> Optional[Tuple[bool, str, str]]:
         """
         Determine if bot should make an accusation and against whom
@@ -289,12 +299,13 @@ class ClaudeClient:
             game_state: Current game state
             bot_player_id: ID of the bot player considering an accusation
             potential_target_ids: List of player IDs that can be accused
+            prompt_builder: Prompt builder function
 
         Returns:
             Tuple of (should_accuse, target_id, reasoning) or None if error
         """
         try:
-            prompt = build_accusation_prompt(game_state, bot_player_id, potential_target_ids)
+            prompt = prompt_builder(game_state, bot_player_id, potential_target_ids)
             response = await self.get_xml_completion(prompt, ["should_accuse", "target_id"], max_tokens=512, temperature=0.6)
 
             if response and "should_accuse" in response:
@@ -329,7 +340,8 @@ class ClaudeClient:
         game_state: Dict[str, Any],
         bot_player_id: str,
         accused_id: str,
-        accused_name: str
+        accused_name: str,
+        prompt_builder
     ) -> Optional[bool]:
         """
         Determine if bot should vote guilty on an accusation
@@ -339,12 +351,13 @@ class ClaudeClient:
             bot_player_id: ID of the bot player voting
             accused_id: ID of the player being accused
             accused_name: Name of the player being accused
+            prompt_builder: Prompt builder function
 
         Returns:
-            Tuple of (vote_guilty, reasoning) or None if error
+            Vote decision (True for guilty, False for innocent) or None if error
         """
         try:
-            prompt = build_voting_prompt(game_state, bot_player_id, accused_id, accused_name)
+            prompt = prompt_builder(game_state, bot_player_id, accused_id, accused_name)
             response = await self.get_xml_completion(prompt, ["vote_guilty"], max_tokens=512, temperature=0.6)
 
             if response and "vote_guilty" in response:
@@ -365,5 +378,5 @@ class ClaudeClient:
             return None
 
 
-# Global client instance
-claude_client = ClaudeClient()
+# Global service instance
+llm_service = LLMService()

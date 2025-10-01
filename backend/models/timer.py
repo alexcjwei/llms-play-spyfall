@@ -1,3 +1,4 @@
+"""Timer models for Spyfall game"""
 import time
 from typing import Dict, Optional
 from dataclasses import dataclass

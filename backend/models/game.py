@@ -1,9 +1,15 @@
-from typing import List, Optional, Dict, Any, Set
+"""Game model and state management for Spyfall"""
+from typing import List, Optional, Dict, Any
 from dataclasses import dataclass, field
+from enum import Enum
 import random
 import time
-from enum import Enum
-from timer import GameTimer
+
+from models.player import Player, PlayerRole
+from models.location import Location, LOCATIONS
+from models.message import Message, Accusation
+from models.timer import GameTimer
+
 
 class GameStatus(Enum):
     WAITING = "waiting"
@@ -12,9 +18,6 @@ class GameStatus(Enum):
     END_OF_ROUND_VOTING = "end_of_round_voting"
     FINISHED = "finished"
 
-class PlayerRole(Enum):
-    SPY = "spy"
-    INNOCENT = "innocent"
 
 class GameEndReason(Enum):
     TIME_EXPIRED = "time_expired"
@@ -23,38 +26,6 @@ class GameEndReason(Enum):
     SPY_GUESSED_LOCATION = "spy_guessed_location"
     SPY_FAILED_GUESS = "spy_failed_guess"
 
-@dataclass
-class Player:
-    id: str
-    name: str
-    is_bot: bool = False
-    is_connected: bool = True
-    role: Optional[PlayerRole] = None
-    location_role: Optional[str] = None  # Specific role at location (e.g., "Pilot")
-    points: int = 0
-    has_accused_this_round: bool = False  # Can only accuse once per round
-
-@dataclass
-class Location:
-    name: str
-    roles: List[str]
-
-@dataclass
-class Message:
-    id: str
-    type: str  # "question" or "answer"
-    from_id: str
-    to_id: Optional[str]  # None for answers
-    content: str
-    timestamp: float
-
-@dataclass
-class Accusation:
-    accuser_id: str
-    accused_id: str
-    votes: Dict[str, bool] = field(default_factory=dict)  # player_id -> True/False
-    timestamp: float = field(default_factory=time.time)
-    is_active: bool = True
 
 @dataclass
 class Game:
@@ -556,37 +527,3 @@ class Game:
             base_dict["location"] = None
 
         return base_dict
-
-# Game locations with their specific roles (from rulebook)
-LOCATIONS = [
-    Location("Airplane", ["Pilot", "Flight Attendant", "Passenger", "Air Marshal", "Mechanic", "Tourist", "Businessman"]),
-    Location("Amusement Park", ["Ride Operator", "Parent", "Food Vendor", "Teenager", "Janitor", "Security Guard", "Mascot"]),
-    Location("Bank", ["Teller", "Security Guard", "Manager", "Customer", "Robber", "Consultant", "Armored Car Driver"]),
-    Location("Beach", ["Lifeguard", "Surfer", "Photographer", "Tourist", "Ice Cream Vendor", "Kite Surfer", "Beach Volleyball Player"]),
-    Location("Carnival", ["Ring Toss Operator", "Visitor", "Fire Eater", "Fortune Teller", "Bouncer", "Candy Seller", "Clown"]),
-    Location("Casino", ["Dealer", "Gambler", "Security", "Cocktail Waitress", "Pit Boss", "Card Counter", "Slot Machine Addict"]),
-    Location("Circus Tent", ["Acrobat", "Animal Trainer", "Magician", "Fire Eater", "Clown", "Juggler", "Ringmaster"]),
-    Location("Corporate Party", ["CEO", "Manager", "Employee", "Secretary", "Security", "Bartender", "Caterer"]),
-    Location("Crusader Army", ["Knight", "Archer", "Priest", "Peasant", "Squire", "Cook", "Prisoner"]),
-    Location("Day Spa", ["Masseuse", "Customer", "Dermatologist", "Beautician", "Receptionist", "Aromatherapist", "Manicurist"]),
-    Location("Embassy", ["Ambassador", "Security Officer", "Tourist", "Refugee", "Diplomat", "Government Official", "Secretary"]),
-    Location("Hospital", ["Doctor", "Nurse", "Patient", "Surgeon", "Anesthesiologist", "Intern", "Therapist"]),
-    Location("Hotel", ["Guest", "Bellhop", "Manager", "Housekeeper", "Bartender", "Doorman", "Concierge"]),
-    Location("Military Base", ["Soldier", "Medic", "Engineer", "Sniper", "Officer", "Tank Operator", "Radioman"]),
-    Location("Movie Studio", ["Director", "Actor", "Cameraman", "Producer", "Sound Engineer", "Stuntman", "Make-up Artist"]),
-    Location("Nightclub", ["DJ", "Bouncer", "Dancer", "Bartender", "VIP", "Party Girl", "Waiter"]),
-    Location("Ocean Liner", ["Captain", "Bartender", "Musician", "Wealthy Passenger", "Poor Passenger", "Waiter", "Lifeguard"]),
-    Location("Passenger Train", ["Mechanic", "Border Patrol", "Passenger", "Restaurant Chef", "Engineer", "Stoker", "Conductor"]),
-    Location("Pirate Ship", ["Captain", "Mate", "Cabin Boy", "Gunner", "Cook", "Prisoner", "Sailor"]),
-    Location("Police Station", ["Detective", "Lawyer", "Journalist", "Criminalist", "Archivist", "Patrol Officer", "Criminal"]),
-    Location("Polar Station", ["Medic", "Expedition Leader", "Biologist", "Radioman", "Hydrologist", "Meteorologist", "Geologist"]),
-    Location("Restaurant", ["Musician", "Customer", "Bouncer", "Hostess", "Head Chef", "Food Critic", "Waiter"]),
-    Location("School", ["Gym Teacher", "Student", "Principal", "Security Guard", "Janitor", "Lunch Lady", "Maintenance Man"]),
-    Location("Service Station", ["Manager", "Tire Specialist", "Biker", "Car Owner", "Car Wash Operator", "Electrician", "Auto Mechanic"]),
-    Location("Space Station", ["Engineer", "Alien", "Space Tourist", "Pilot", "Commander", "Scientist", "Doctor"]),
-    Location("Submarine", ["Cook", "Commander", "Sonar Technician", "Electronics Specialist", "Sailor", "Radioman", "Navigator"]),
-    Location("Supermarket", ["Customer", "Cashier", "Butcher", "Janitor", "Security Guard", "Food Sample Demonstrator", "Shelf Stocker"]),
-    Location("Theater", ["Coat Check Lady", "Prompter", "Cashier", "Director", "Actor", "Crewman", "Audience Member"]),
-    Location("University", ["Graduate Student", "Professor", "Dean", "Psychologist", "Maintenance Man", "Student", "Janitor"]),
-    Location("Zoo", ["Zookeeper", "Visitor", "Photographer", "Child", "Veterinarian", "Tour Guide", "Security Guard"])
-]

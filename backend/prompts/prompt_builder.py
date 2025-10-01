@@ -55,16 +55,16 @@ class PromptFormatter:
         return f"""
 
 {xml_format_example}"""
-    
+
     @staticmethod
     def get_game_description() -> str:
         return """Spyfall is a social deduction game. Each round, players are assigned a location and role. One player is the spy who doesn't know the location.
-- **The spy’s objective** is to avoid exposure until the end of a given round or identify the current location.
-- **The non-spies’ objective** is to establish consensus on the identity of the spy and expose him or her.
+- **The spy's objective** is to avoid exposure until the end of a given round or identify the current location.
+- **The non-spies' objective** is to establish consensus on the identity of the spy and expose him or her.
 
 Strategies:
-- The objectives of the non-spy players are to identify the spy and avoid revealing their location. Therefore, the non-spies should refrain from being too explicit in their questions: (for example, “How much cash did the robbers steal yesterday?” The spy will instantly identify the location as the bank). However, when a player’s questions and answers are too vague, other players might start suspecting them of being the spy, enabling the real spy to win.
-- The spy’s objective is to listen as carefully as possible to what the other players say and do their best to avoid blowing their cover while also trying to identify the location before eight minutes have passed. A spy who doesn’t attempt to guess the location is taking a risk — it is entirely possible that the other players will identify them after discussion and voting."""
+- The objectives of the non-spy players are to identify the spy and avoid revealing their location. Therefore, the non-spies should refrain from being too explicit in their questions: (for example, "How much cash did the robbers steal yesterday?" The spy will instantly identify the location as the bank). However, when a player's questions and answers are too vague, other players might start suspecting them of being the spy, enabling the real spy to win.
+- The spy's objective is to listen as carefully as possible to what the other players say and do their best to avoid blowing their cover while also trying to identify the location before eight minutes have passed. A spy who doesn't attempt to guess the location is taking a risk — it is entirely possible that the other players will identify them after discussion and voting."""
 
     @staticmethod
     def format_game_locations(locations: List[Location]) -> str:
@@ -108,7 +108,7 @@ def build_question_prompt(
 <target_id>player_id</target_id>
 <question>your question</question>""")
 
-    prompt = f"""You are {bot_name} playing a game of Spyfall. It is your turn to ask another player a question. 
+    prompt = f"""You are {bot_name} playing a game of Spyfall. It is your turn to ask another player a question.
 
 GAME DESCRIPTION:
 {game_description}
@@ -252,7 +252,7 @@ def build_voting_prompt(
 </scratchpad><vote_guilty>true</vote_guilty> <!-- or false -->""")
 
     prompt = f"""You are {bot_name} playing Spyfall and need to vote on an accusation that has been made.
-    
+
 GAME DESCRIPTION:
 {game_description}
 
@@ -273,3 +273,27 @@ Think through whether to vote {accused_name} guilty of being the spy, then provi
 {xml_instruction}"""
 
     return prompt
+
+
+class PromptService:
+    """Service for building prompts"""
+
+    @staticmethod
+    def build_question_prompt(game_state, bot_player_id, available_target_ids):
+        return build_question_prompt(game_state, bot_player_id, available_target_ids)
+
+    @staticmethod
+    def build_answer_prompt(game_state, bot_player_id, question, questioner_id):
+        return build_answer_prompt(game_state, bot_player_id, question, questioner_id)
+
+    @staticmethod
+    def build_accusation_prompt(game_state, bot_player_id, potential_target_ids):
+        return build_accusation_prompt(game_state, bot_player_id, potential_target_ids)
+
+    @staticmethod
+    def build_voting_prompt(game_state, bot_player_id, accused_id, accused_name):
+        return build_voting_prompt(game_state, bot_player_id, accused_id, accused_name)
+
+
+# Global service instance
+prompt_service = PromptService()

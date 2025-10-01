@@ -1,6 +1,6 @@
 import React from 'react';
-import { TimerState } from '../types';
-import { useTimerDisplay } from '../hooks/useGameTimer';
+import { TimerState } from '../../../types';
+import { useTimerDisplay } from '../../../hooks/useGameTimer';
 
 interface GameTimerProps {
   timerState?: TimerState;

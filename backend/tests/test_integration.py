@@ -3,7 +3,8 @@ Integration tests for Claude API (requires CLAUDE_API_KEY)
 """
 import pytest
 import os
-from llm import claude_client
+from services.llm_service import llm_service as claude_client
+from prompts import prompt_service
 
 
 @pytest.mark.skipif(
@@ -27,7 +28,9 @@ class TestClaudeIntegration:
     async def test_question_generation_integration(self, mock_game_state):
         """Test actual question generation with Claude"""
         available_targets = ["human1", "bot2"]
-        result = await claude_client.generate_question(mock_game_state, "bot1", available_targets)
+        result = await claude_client.generate_question(
+            mock_game_state, "bot1", available_targets, prompt_service.build_question_prompt
+        )
 
         assert result is not None
         target_id, question = result
@@ -39,7 +42,8 @@ class TestClaudeIntegration:
     async def test_answer_generation_integration(self, mock_game_state):
         """Test actual answer generation with Claude"""
         answer = await claude_client.generate_answer(
-            mock_game_state, "bot1", "What's your favorite part of working here?", "human1"
+            mock_game_state, "bot1", "What's your favorite part of working here?", "human1",
+            prompt_service.build_answer_prompt
         )
 
         assert answer is not None
@@ -50,7 +54,9 @@ class TestClaudeIntegration:
     async def test_spy_question_generation(self, mock_spy_game_state):
         """Test question generation when bot is the spy"""
         available_targets = ["human1"]
-        result = await claude_client.generate_question(mock_spy_game_state, "bot1", available_targets)
+        result = await claude_client.generate_question(
+            mock_spy_game_state, "bot1", available_targets, prompt_service.build_question_prompt
+        )
 
         assert result is not None
         target_id, question = result
@@ -63,7 +69,7 @@ class TestClaudeIntegration:
     async def test_voting_decision_integration(self, mock_voting_game_state):
         """Test actual voting decision generation with Claude"""
         result = await claude_client.should_vote_guilty(
-            mock_voting_game_state, "bot2", "bot3", "Carol"
+            mock_voting_game_state, "bot2", "bot3", "Carol", prompt_service.build_voting_prompt
         )
 
         assert result is not None
@@ -74,7 +80,7 @@ class TestClaudeIntegration:
     async def test_spy_voting_decision_integration(self, mock_spy_voting_game_state):
         """Test voting decision when bot is the spy"""
         result = await claude_client.should_vote_guilty(
-            mock_spy_voting_game_state, "bot1", "bot2", "Bob"
+            mock_spy_voting_game_state, "bot1", "bot2", "Bob", prompt_service.build_voting_prompt
         )
 
         assert result is not None

@@ -4,7 +4,8 @@ Tests for LLM integration module
 import pytest
 import json
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from llm import ClaudeClient
+from services.llm_service import LLMService as ClaudeClient
+from prompts import prompt_service
 
 
 class TestClaudeClient:
@@ -122,7 +123,9 @@ I need to ask a strategic question to gather information about whether other pla
             mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_response)
 
             client = ClaudeClient()
-            result = await client.generate_question(mock_game_state, "bot1", ["human1", "bot2"])
+            result = await client.generate_question(
+                mock_game_state, "bot1", ["human1", "bot2"], prompt_service.build_question_prompt
+            )
 
             assert result is not None
             target_id, question = result
@@ -151,7 +154,9 @@ I need to ask a question but I'll choose an invalid target.
             mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_response)
 
             client = ClaudeClient()
-            result = await client.generate_question(mock_game_state, "bot1", ["human1", "bot2"])
+            result = await client.generate_question(
+                mock_game_state, "bot1", ["human1", "bot2"], prompt_service.build_question_prompt
+            )
 
             assert result is None
 
@@ -177,7 +182,8 @@ I need to answer in a way that shows I know the location but doesn't give too mu
 
             client = ClaudeClient()
             result = await client.generate_answer(
-                mock_game_state, "bot1", "What's your favorite part of the job?", "human1"
+                mock_game_state, "bot1", "What's your favorite part of the job?", "human1",
+                prompt_service.build_answer_prompt
             )
 
             assert result is not None

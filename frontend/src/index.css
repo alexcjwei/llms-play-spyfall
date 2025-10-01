@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Custom game styles */
+.bg-spy-red {
+  background-color: #dc2626;
+}
+
+.bg-innocent-blue {
+  background-color: #2563eb;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',

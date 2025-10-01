@@ -2,7 +2,7 @@
 Tests for prompts module
 """
 import pytest
-from prompts import build_question_prompt, build_answer_prompt
+from prompts.prompt_builder import build_question_prompt, build_answer_prompt
 
 
 class TestPrompts:
