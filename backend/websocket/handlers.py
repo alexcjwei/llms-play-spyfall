@@ -85,9 +85,9 @@ async def handle_start_game(client_id: str, message: dict):
         # Send updated game state to all players
         await connection_manager.send_game_state(game_id)
 
-        # Check if it's now a bot's turn - schedule with slight delay
+        # Check if it's now a bot's turn - use new parallel bot system
         if bot_orchestrator:
-            bot_orchestrator.schedule_next_bot_action(game_id, delay=1)
+            bot_orchestrator.schedule_parallel_bot_action(game_id, delay=1)
 
         # Send start confirmation
         game = game_service.get_game(game_id)
@@ -119,9 +119,9 @@ async def handle_ask_question(client_id: str, message: dict):
         # Send updated game state to all players
         await connection_manager.send_game_state(game_id)
 
-        # Check if it's now a bot's turn - schedule with slight delay
+        # Use new parallel bot system to query all bots after turn
         if bot_orchestrator:
-            bot_orchestrator.schedule_next_bot_action(game_id, delay=1)
+            bot_orchestrator.schedule_parallel_bot_action(game_id, delay=1)
     else:
         # Send error to the requesting player
         error_response = {
@@ -148,9 +148,9 @@ async def handle_give_answer(client_id: str, message: dict):
         # Send updated game state to all players
         await connection_manager.send_game_state(game_id)
 
-        # Check if it's now a bot's turn - schedule with slight delay
+        # Use new parallel bot system to query all bots after turn
         if bot_orchestrator:
-            bot_orchestrator.schedule_next_bot_action(game_id, delay=1)
+            bot_orchestrator.schedule_parallel_bot_action(game_id, delay=1)
     else:
         # Send error to the requesting player
         error_response = {
@@ -209,9 +209,9 @@ async def handle_accuse_player(client_id: str, message: dict):
         }
         await connection_manager.broadcast_to_game(json.dumps(response), game)
 
-        # Schedule bot actions based on game state
+        # Use new parallel bot system for voting/accusations
         if bot_orchestrator:
-            bot_orchestrator.schedule_next_bot_action(game_id, delay=0)
+            bot_orchestrator.schedule_parallel_bot_action(game_id, delay=0)
     else:
         error_response = {
             "type": "accusation_error",
@@ -247,9 +247,9 @@ async def handle_vote(client_id: str, message: dict):
         # Send updated game state to all players
         await connection_manager.send_game_state(game_id)
 
-        # Schedule bot actions (voting or accusations) based on game state
+        # Use new parallel bot system for voting/accusations
         if bot_orchestrator:
-            bot_orchestrator.schedule_next_bot_action(game_id, delay=0)
+            bot_orchestrator.schedule_parallel_bot_action(game_id, delay=0)
 
 
 async def handle_spy_guess_location(client_id: str, message: dict):

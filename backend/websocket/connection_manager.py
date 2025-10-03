@@ -23,14 +23,26 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket, client_id: str):
         """Accept and register a new WebSocket connection"""
         await websocket.accept()
+        # Close old connection if client reconnects with same ID
+        if client_id in self.active_connections:
+            old_ws = self.active_connections[client_id]
+            try:
+                await old_ws.close()
+                logger.info(f"Closed old connection for reconnecting client {client_id}")
+            except Exception as e:
+                logger.warning(f"Error closing old connection for {client_id}: {e}")
         self.active_connections[client_id] = websocket
         logger.info(f"Client {client_id} connected. Total active connections: {len(self.active_connections)}")
 
-    def disconnect(self, client_id: str):
+    def disconnect(self, client_id: str, websocket: WebSocket = None):
         """Unregister a WebSocket connection"""
         if client_id in self.active_connections:
-            del self.active_connections[client_id]
-            logger.info(f"Client {client_id} disconnected. Total active connections: {len(self.active_connections)}")
+            # Only disconnect if this is the current websocket (not a stale one)
+            if websocket is None or self.active_connections[client_id] == websocket:
+                del self.active_connections[client_id]
+                logger.info(f"Client {client_id} disconnected. Total active connections: {len(self.active_connections)}")
+            else:
+                logger.info(f"Ignored disconnect for {client_id} (stale websocket)")
         else:
             logger.warning(f"Attempted to disconnect {client_id} but they were not in active connections")
 

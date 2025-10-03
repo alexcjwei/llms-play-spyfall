@@ -2,6 +2,7 @@
 Spyfall Online API - Refactored
 Clean, modular FastAPI application
 """
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +18,7 @@ from models import Game, Player, GameStatus
 # Import services
 from services import game_service, llm_service
 from services.bot_service import BotService
+from services.parallel_bot_service import ParallelBotService
 from prompts import prompt_service
 
 # Import websocket components
@@ -44,14 +46,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize bot service with dependencies
+# Initialize bot services with dependencies
 bot_service_instance = BotService(llm_service, prompt_service)
+parallel_bot_service_instance = ParallelBotService(llm_service)
 
 # Inject game_service into connection_manager
 connection_manager.set_game_service(game_service)
 
 # Inject dependencies into bot orchestrator to avoid circular imports
-bot_orchestrator.bot_service = bot_service_instance
+bot_orchestrator.bot_service = bot_service_instance  # Legacy bot service (fallback)
+bot_orchestrator.parallel_bot_service = parallel_bot_service_instance  # New parallel bot service
 bot_orchestrator.game_service = game_service
 bot_orchestrator.connection_manager = connection_manager
 
@@ -67,7 +71,7 @@ async def check_game_timers():
             expired_games = game_service.check_timers()
             for game_id in expired_games:
                 # Cancel any pending bot actions
-                bot_orchestrator.cancel_pending_task(game_id)
+                bot_orchestrator.cancel_pending_tasks(game_id)
                 # Send updated game state to all players
                 await connection_manager.send_game_state(game_id)
             await asyncio.sleep(1)  # Check every second
@@ -120,7 +124,9 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                 else:
                     logger.warning(f"Unknown message type: {message_type}")
             except Exception as e:
-                logger.error(f"Error handling message type {message_type}: {e}", exc_info=True)
+                logger.error(
+                    f"Error handling message type {message_type}: {e}", exc_info=True
+                )
                 # Don't break the connection, just log and continue
 
     except WebSocketDisconnect:

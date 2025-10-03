@@ -464,6 +464,8 @@ class Game:
         self.status = GameStatus.FINISHED
         self.end_reason = reason
         self.winner = winner
+        # Stop the timer when game ends
+        self.timer.stop()
 
 
     def to_dict(self) -> Dict[str, Any]:

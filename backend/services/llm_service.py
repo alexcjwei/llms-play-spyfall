@@ -377,6 +377,154 @@ class LLMService:
             logger.error(f"Bot voting decision: Unexpected error for bot {bot_player_id} voting on {accused_name}: {type(e).__name__}: {e}")
             return None
 
+    async def query_bot_with_tools(
+        self,
+        prompt: str,
+        bot_id: str,
+        available_tools: List[Dict[str, Any]],
+        max_tokens: int = 1024,
+        temperature: float = 0.7
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Query bot with available tools using tool_choice: required
+
+        Args:
+            prompt: The prompt to send to Claude
+            bot_id: ID of the bot being queried (for logging)
+            available_tools: List of available tool definitions
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature
+
+        Returns:
+            Dictionary containing tool calls or None if error
+        """
+        try:
+            payload = {
+                "model": self.model,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                "tools": available_tools,
+                "tool_choice": {"type": "any"}  # Force the model to use a tool
+            }
+
+            async with httpx.AsyncClient() as client:
+                logger.info(payload)
+                response = await client.post(
+                    self.base_url,
+                    headers=self.headers,
+                    json=payload,
+                    timeout=30.0
+                )
+
+                if response.status_code == 200:
+                    result = response.json()
+
+                    # Extract tool calls from Claude's response
+                    content = result.get("content", [])
+                    logger.info(content)
+                    tool_calls = []
+
+                    for item in content:
+                        if item.get("type") == "tool_use":
+                            tool_calls.append({
+                                "name": item.get("name"),
+                                "parameters": item.get("input", {})
+                            })
+
+                    logger.info(f"Bot {bot_id} tool query - tool calls received: {tool_calls}")
+
+                    # Handle fallback if no tool calls (shouldn't happen with tool_choice: any)
+                    if not tool_calls:
+                        logger.warning(f"Bot {bot_id} made no tool calls despite tool_choice: any")
+                        # Create fallback response based on available tools
+                        return self._create_fallback_tool_response(available_tools, bot_id)
+
+                    return {"tool_calls": tool_calls}
+
+                else:
+                    error_details = {
+                        "status_code": response.status_code,
+                        "response_text": response.text,
+                        "headers": dict(response.headers),
+                        "url": str(response.url)
+                    }
+                    logger.error(f"Claude API HTTP error for bot {bot_id}: {error_details}")
+                    return self._create_fallback_tool_response(available_tools, bot_id)
+
+        except httpx.TimeoutException as e:
+            logger.error(f"Claude API timeout for bot {bot_id}: {e}")
+            return self._create_fallback_tool_response(available_tools, bot_id)
+        except httpx.RequestError as e:
+            logger.error(f"Claude API request error for bot {bot_id}: {e}")
+            return self._create_fallback_tool_response(available_tools, bot_id)
+        except Exception as e:
+            logger.error(f"Unexpected error querying bot {bot_id} with tools: {type(e).__name__}: {e}")
+            return self._create_fallback_tool_response(available_tools, bot_id)
+
+    def _create_fallback_tool_response(self, available_tools: List[Dict[str, Any]], bot_id: str) -> Dict[str, Any]:
+        """
+        Create a fallback tool response when LLM fails
+
+        Args:
+            available_tools: List of available tools
+            bot_id: ID of the bot (for logging)
+
+        Returns:
+            Fallback tool response
+        """
+        logger.warning(f"Creating fallback response for bot {bot_id}")
+
+        # Simple fallback logic: choose the first available tool with minimal parameters
+        if not available_tools:
+            return {"tool_calls": []}
+
+        # Prefer non-accusation tools for fallback to avoid random accusations
+        non_accuse_tools = [tool for tool in available_tools if tool.get('name') != 'accuse']
+
+        if non_accuse_tools:
+            fallback_tool = non_accuse_tools[0]
+        else:
+            fallback_tool = available_tools[0]
+
+        tool_name = fallback_tool.get('name')
+
+        # Create minimal parameters based on tool type
+        if tool_name == 'ask':
+            # Don't create fallback ask - too risky without proper target
+            return {"tool_calls": []}
+        elif tool_name == 'answer':
+            return {
+                "tool_calls": [{
+                    "name": "answer",
+                    "parameters": {
+                        "thought": "I need to think about this question.",
+                        "answer": "That's an interesting question."
+                    }
+                }]
+            }
+        elif tool_name == 'accuse':
+            # Don't make fallback accusations - leave target empty
+            return {
+                "tool_calls": [{
+                    "name": "accuse",
+                    "parameters": {
+                        "thought": "I'm not ready to make an accusation yet.",
+                        "target": ""  # Empty target = no accusation
+                    }
+                }]
+            }
+        elif tool_name == 'guess_location':
+            # Don't make fallback location guesses - too risky
+            return {"tool_calls": []}
+
+        return {"tool_calls": []}
+
 
 # Global service instance
 llm_service = LLMService()
