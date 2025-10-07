@@ -118,6 +118,10 @@ export function GameProvider({ children }: GameProviderProps) {
         },
         onPlayerDisconnected: (playerId, playerName) => {
           console.log('Player disconnected:', playerId, playerName);
+        },
+        onSpyRevealed: (spy, guessedLocation, actualLocation, correct) => {
+          console.log('Spy revealed:', spy, 'guessed:', guessedLocation, 'actual:', actualLocation, 'correct:', correct);
+          // The game state update will be sent separately by the backend
         }
       });
     }

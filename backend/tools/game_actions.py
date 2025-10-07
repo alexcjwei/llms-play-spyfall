@@ -1,7 +1,11 @@
 """Tools for game actions taken by bots"""
+import logging
+from models import GameStatus
+logger = logging.getLogger(__name__)
+
 ask_tool = {
         "name": "ask",
-        "description": "Ask another player a question. Non-spies: DO NOT ask questions that might reveal the location to the spy",
+        "description": "Ask another player a question. Non-spies: The spy is listening -- DO NOT ask questions that reveal the location to the spy",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -15,10 +19,6 @@ ask_tool = {
 
 def ask(game, bot_id: str, thought: str, question: str, target: str) -> bool:
     """Ask a question to another player"""
-    from models import Game
-    import logging
-
-    logger = logging.getLogger(__name__)
     logger.info(f"Bot {bot_id} thinking: {thought}")
 
     # Validate target is not the bot themselves
@@ -46,12 +46,12 @@ def ask(game, bot_id: str, thought: str, question: str, target: str) -> bool:
 
 answer_tool = {
         "name": "answer",
-        "description": "Answer the question just asked to you. Non-spies: DO NOT answer in a way that might reveal the location to the spy",
+        "description": "Answer the question just asked to you. Non-spies: The spy is listening -- DO NOT answer with phrases that reveal the location to the spy",
         "input_schema": {
             "type": "object",
             "properties": {
                 "thought": {"type": "string", "description": "Your private thoughts, reasoning, and strategy"},
-                "answer": {"type": "string", "description": "Brief (1-2 sentence) answer. Do not ask a counter-question."}
+                "answer": {"type": "string", "description": "Brief (1-2 sentence) answer. DO NOT ask a counter-question"}
             },
             "required": ["thought", "answer"]
         }
@@ -59,9 +59,6 @@ answer_tool = {
 
 def answer(game, bot_id: str, thought: str, answer: str) -> bool:
     """Answer the question just asked to this bot"""
-    import logging
-
-    logger = logging.getLogger(__name__)
     logger.info(f"Bot {bot_id} thinking: {thought}")
 
     # Validate there's a question waiting for this bot to answer
@@ -84,7 +81,7 @@ accuse_tool = {
             "type": "object",
             "properties": {
                 "thought": {"type": "string", "description": "Your private thoughts, reasoning, and strategy"},
-                "target": {"type": "string", "description": "ID of the player to accuse and vote guilty. No accusation made if left empty"}
+                "target": {"type": "string", "description": "ID of the player to accuse and vote guilty. If left empty, accusation will not be made"}
             },
             "required": ["thought"]
         }
@@ -92,8 +89,6 @@ accuse_tool = {
 
 def accuse(game, bot_id: str, thought: str, target: str = "") -> bool:
     """Accuse another player of being a spy"""
-    import logging
-
     logger = logging.getLogger(__name__)
     logger.info(f"Bot {bot_id} thinking: {thought}")
 
@@ -128,7 +123,7 @@ def accuse(game, bot_id: str, thought: str, target: str = "") -> bool:
 
 vote_tool = {
         "name": "vote",
-        "description": "Vote on whether the accused player is guilty of being the spy.",
+        "description": "Vote on whether the accused player is guilty of being the spy. The accused player does not have a vote. If the majority of vote guilty, the game ends and the player's card is revealed.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -141,10 +136,6 @@ vote_tool = {
 
 def vote(game, bot_id: str, thought: str, guilty: bool) -> bool:
     """Vote on the current accusation"""
-    from models import GameStatus
-    import logging
-
-    logger = logging.getLogger(__name__)
     logger.info(f"Bot {bot_id} thinking: {thought}")
 
     # Check if game is in voting state
@@ -180,22 +171,19 @@ def vote(game, bot_id: str, thought: str, guilty: bool) -> bool:
 
 guess_location_tool = {
         "name": "guess_location",
-        "description": "Guess the location. Reveals yourself as the spy and ends the game. You win if correct and lose if not.",
+        "description": "Guess the location. Reveals yourself as the spy and ends the game. You win if correct and lose if not. Do not guess if you are not 80 percent sure or higher",
         "input_schema": {
             "type": "object",
             "properties": {
                 "thought": {"type": "string", "description": "Your private thoughts, reasoning, and strategy"},
-                "location": {"type": "string", "description": "The game location, matching the case"}
+                "location": {"type": "string", "description": "The game location, matching the case. If empty, guess will not be made"}
             },
-            "required": ["thought", "location"]
+            "required": ["thought"]
         }
     }
 
 def guess_location(game, bot_id: str, thought: str, location: str) -> bool:
     """Guess the location as the spy, ending the game"""
-    import logging
-
-    logger = logging.getLogger(__name__)
     logger.info(f"Bot {bot_id} thinking: {thought}")
 
     # Validate the bot is actually the spy

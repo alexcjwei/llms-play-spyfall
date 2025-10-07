@@ -210,8 +210,9 @@ async def handle_accuse_player(client_id: str, message: dict):
         await connection_manager.broadcast_to_game(json.dumps(response), game)
 
         # Use new parallel bot system for voting/accusations
+        # Add small delay to ensure human player receives WebSocket messages first
         if bot_orchestrator:
-            bot_orchestrator.schedule_parallel_bot_action(game_id, delay=0)
+            bot_orchestrator.schedule_parallel_bot_action(game_id, delay=1)
     else:
         error_response = {
             "type": "accusation_error",
@@ -248,8 +249,9 @@ async def handle_vote(client_id: str, message: dict):
         await connection_manager.send_game_state(game_id)
 
         # Use new parallel bot system for voting/accusations
+        # Add small delay to ensure human player receives WebSocket messages first
         if bot_orchestrator:
-            bot_orchestrator.schedule_parallel_bot_action(game_id, delay=0)
+            bot_orchestrator.schedule_parallel_bot_action(game_id, delay=1)
 
 
 async def handle_spy_guess_location(client_id: str, message: dict):
