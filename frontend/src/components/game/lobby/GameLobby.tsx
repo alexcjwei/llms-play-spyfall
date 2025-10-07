@@ -14,27 +14,21 @@ export function GameLobby() {
     playerName,
     playerId,
     isConnected,
-    gameIdInput,
     playerCount,
     setPlayerName,
-    setGameIdInput,
     setPlayerCount,
     createNewGame,
-    joinExistingGame,
     startGame
   } = useGameContext();
 
-  // If no game state, show the join form
+  // If no game state, show the create form
   if (!gameState) {
     return (
       <LobbyForm
         playerName={playerName}
-        gameIdInput={gameIdInput}
         isConnected={isConnected}
         onPlayerNameChange={setPlayerName}
-        onGameIdInputChange={setGameIdInput}
         onCreateNewGame={createNewGame}
-        onJoinExistingGame={joinExistingGame}
       />
     );
   }
@@ -65,6 +59,30 @@ export function GameLobby() {
           onPlayerCountChange={setPlayerCount}
         />
       )}
+
+      <div className="mb-6 p-4 bg-green-50 rounded-lg">
+        <h4 className="text-md font-medium mb-3">Game Locations</h4>
+        <div>
+          <label htmlFor="locationsList" className="block text-sm font-medium text-gray-700 mb-1">
+            Available Locations ({gameState.availableLocations?.length || 0})
+          </label>
+          <select
+            id="locationsList"
+            className="block w-full rounded-md border-gray-300 shadow-sm bg-gray-50 text-gray-700 cursor-pointer"
+            defaultValue=""
+          >
+            <option value="" disabled>Browse locations...</option>
+            {(gameState.availableLocations || []).map(location => (
+              <option key={location} value={location}>
+                {location}
+              </option>
+            ))}
+          </select>
+          <div className="text-xs text-gray-600 mt-1">
+            One location will be randomly selected for the game
+          </div>
+        </div>
+      </div>
 
       <div className="mb-4 mt-6">
         <StatusBadge

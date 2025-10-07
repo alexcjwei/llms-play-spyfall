@@ -9,16 +9,13 @@ interface GameContextState {
   playerId: string;
   isConnected: boolean;
   error: string | null;
-  gameIdInput: string;
   playerCount: number;
 }
 
 interface GameContextActions {
   setPlayerName: (name: string) => void;
-  setGameIdInput: (id: string) => void;
   setPlayerCount: (count: number) => void;
   createNewGame: () => void;
-  joinExistingGame: () => void;
   startGame: () => void;
   askQuestion: (content: string, target: string) => void;
   giveAnswer: (content: string) => void;
@@ -35,7 +32,6 @@ const GameContext = createContext<GameContextValue | null>(null);
 type GameAction =
   | { type: 'SET_GAME_STATE'; payload: GameState }
   | { type: 'SET_PLAYER_NAME'; payload: string }
-  | { type: 'SET_GAME_ID_INPUT'; payload: string }
   | { type: 'SET_PLAYER_COUNT'; payload: number }
   | { type: 'SET_CONNECTION_STATUS'; payload: boolean }
   | { type: 'SET_ERROR'; payload: string }
@@ -47,7 +43,6 @@ const initialState: GameContextState = {
   playerId: '',
   isConnected: false,
   error: null,
-  gameIdInput: '',
   playerCount: 3,
 };
 
@@ -57,8 +52,6 @@ function gameReducer(state: GameContextState, action: GameAction): GameContextSt
       return { ...state, gameState: action.payload };
     case 'SET_PLAYER_NAME':
       return { ...state, playerName: action.payload };
-    case 'SET_GAME_ID_INPUT':
-      return { ...state, gameIdInput: action.payload.toUpperCase() };
     case 'SET_PLAYER_COUNT':
       return { ...state, playerCount: action.payload };
     case 'SET_CONNECTION_STATUS':
@@ -132,10 +125,6 @@ export function GameProvider({ children }: GameProviderProps) {
     dispatch({ type: 'SET_PLAYER_NAME', payload: name });
   }, []);
 
-  const setGameIdInput = useCallback((id: string) => {
-    dispatch({ type: 'SET_GAME_ID_INPUT', payload: id });
-  }, []);
-
   const setPlayerCount = useCallback((count: number) => {
     dispatch({ type: 'SET_PLAYER_COUNT', payload: count });
   }, []);
@@ -147,19 +136,6 @@ export function GameProvider({ children }: GameProviderProps) {
     }
   }, [state.playerName, state.isConnected, state.playerId, gameService]);
 
-  const joinExistingGame = useCallback(() => {
-    if (state.playerName && state.gameIdInput && state.isConnected && state.playerId) {
-      console.log('Attempting to join game:', state.gameIdInput, 'as player:', state.playerName);
-      gameService.joinGame(state.gameIdInput, state.playerName);
-    } else {
-      console.log('Join conditions not met:', {
-        playerName: state.playerName,
-        gameIdInput: state.gameIdInput,
-        isConnected: state.isConnected,
-        playerId: state.playerId
-      });
-    }
-  }, [state.playerName, state.gameIdInput, state.isConnected, state.playerId, gameService]);
 
   const startGame = useCallback(() => {
     if (state.gameState && state.isConnected) {
@@ -204,10 +180,8 @@ export function GameProvider({ children }: GameProviderProps) {
   const contextValue: GameContextValue = {
     ...state,
     setPlayerName,
-    setGameIdInput,
     setPlayerCount,
     createNewGame,
-    joinExistingGame,
     startGame,
     askQuestion,
     giveAnswer,

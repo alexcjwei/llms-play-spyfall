@@ -46,7 +46,7 @@ def ask(game, bot_id: str, thought: str, question: str, target: str) -> bool:
 
 answer_tool = {
         "name": "answer",
-        "description": "Answer the question just asked to you. Non-spies: The spy is listening -- DO NOT answer with phrases that reveal the location to the spy",
+        "description": "Answer the question just asked to you. Non-spies: the SPY is listening -- DO NOT answer with phrases that reveal the location",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -123,7 +123,7 @@ def accuse(game, bot_id: str, thought: str, target: str = "") -> bool:
 
 vote_tool = {
         "name": "vote",
-        "description": "Vote on whether the accused player is guilty of being the spy. The accused player does not have a vote. If the majority of vote guilty, the game ends and the player's card is revealed.",
+        "description": "Vote on whether the accused player is guilty of being the spy. The accused player does not have a vote. The spy wins if any non-spy is voted guilty. The non-spies win only if the spy is voted guilty. Non-spies should be 80% sure when voting guilty. If there is a majority vote for guilty, the game ends immediately and the winner is revealed.",
         "input_schema": {
             "type": "object",
             "properties": {

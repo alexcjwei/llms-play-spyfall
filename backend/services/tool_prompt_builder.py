@@ -34,7 +34,7 @@ def build_bot_tool_prompt(
         role = "Spy"
     else:
         location = game.location.name if game.location else "Unknown"
-        role = bot_player.role if bot_player.role else "Unknown"
+        role = bot_player.role.name if bot_player.role else "Unknown"
 
     # Build player list with question targeting info
     player_list = []
@@ -97,6 +97,11 @@ Spyfall is a social deduction game. Each round, players are assigned a location 
 - **The spy's objective** is to avoid exposure until the end of a given round or identify the current location. Their object is to listen as carefully as possible to what the other players say and do their best to avoid blowing their cover while also trying to identify the location. A spy who doesn't attempt to guess the location is taking a risk — it is entirely possible that the other players will identify them after discussion and voting.
 - **The non-spies' objective** is to establish consensus on the identity of the spy and expose him or her while not revealing their location. Therefore, the non-spies should refrain from being too explicit in their questions: (for example, "How much cash did the robbers steal yesterday?" The spy will instantly identify the location as the bank).
 
+<rules>
+- Questions are asked once; no follow-up questions are allowed.
+- The player who answers the question proceeds to ask any other player a question of their own, but cannot ask a question of the player who just asked them a question.
+</rules>
+
 The spy knows the location is one of the following:
 <locations>
 - Airplane
@@ -145,7 +150,7 @@ These are all the players and their player_id:
 {player_name_and_id}
 </players>
 
-This is the game log up to this point:
+This is the game log up to this point, which may include your previous actions:
 <game_events>
 {qa_history}
 {accusation_context}
