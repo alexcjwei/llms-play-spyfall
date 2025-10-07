@@ -164,8 +164,15 @@ class ParallelBotService:
                     accuse_calls.append((response.bot_id, tool_call))
                 elif tool_name == 'vote':
                     vote_calls.append((response.bot_id, tool_call))
+                else:
+                    # Unknown tool - check if it exists in TOOL_FUNCTIONS
+                    if tool_name not in TOOL_FUNCTIONS:
+                        errors.append(f"Unknown tool: {tool_name}")
+                    else:
+                        # Known tool but not handled in categorization - add to ask_calls as fallback
+                        ask_calls.append((response.bot_id, tool_call))
 
-        # Process in priority order
+        # Process in priority order: [guess_location, accuse, ask, answer]
 
         # 1. Process guess_location (ends game immediately if successful)
         for bot_id, tool_call in guess_location_calls:
@@ -184,33 +191,7 @@ class ParallelBotService:
         if game_ended:
             return GameUpdateResult(actions_taken, errors, game_ended, accusation_made)
 
-        # 2. Process ask (advances game turn)
-        for bot_id, tool_call in ask_calls:
-            success, error = await self._execute_tool_call(game, bot_id, tool_call)
-            if success:
-                actions_taken.append({
-                    'bot_id': bot_id,
-                    'action': 'ask',
-                    'details': tool_call.get('parameters', {})
-                })
-                break  # Only one ask action per turn
-            elif error:
-                errors.append(error)
-
-        # 3. Process answer (completes Q&A exchange)
-        for bot_id, tool_call in answer_calls:
-            success, error = await self._execute_tool_call(game, bot_id, tool_call)
-            if success:
-                actions_taken.append({
-                    'bot_id': bot_id,
-                    'action': 'answer',
-                    'details': tool_call.get('parameters', {})
-                })
-                break  # Only one answer per turn
-            elif error:
-                errors.append(error)
-
-        # 4. Process accuse (only process first one if multiple bots accuse)
+        # 2. Process accuse (stops timer and forces voting)
         if accuse_calls:
             # Filter out empty accusations (bots choosing not to accuse)
             valid_accuse_calls = []
@@ -238,6 +219,32 @@ class ParallelBotService:
                 if len(valid_accuse_calls) > 1:
                     ignored_bots = [bot_id for bot_id, _ in valid_accuse_calls[1:]]
                     logger.info(f"Ignored simultaneous accusations from bots: {ignored_bots}")
+
+        # 3. Process ask (advances game turn)
+        for bot_id, tool_call in ask_calls:
+            success, error = await self._execute_tool_call(game, bot_id, tool_call)
+            if success:
+                actions_taken.append({
+                    'bot_id': bot_id,
+                    'action': 'ask',
+                    'details': tool_call.get('parameters', {})
+                })
+                break  # Only one ask action per turn
+            elif error:
+                errors.append(error)
+
+        # 4. Process answer (completes Q&A exchange)
+        for bot_id, tool_call in answer_calls:
+            success, error = await self._execute_tool_call(game, bot_id, tool_call)
+            if success:
+                actions_taken.append({
+                    'bot_id': bot_id,
+                    'action': 'answer',
+                    'details': tool_call.get('parameters', {})
+                })
+                break  # Only one answer per turn
+            elif error:
+                errors.append(error)
 
         # 5. Process vote calls (during voting phases)
         for bot_id, tool_call in vote_calls:
@@ -280,7 +287,12 @@ class ParallelBotService:
         try:
             # Execute tool function
             success = tool_function(game, bot_id, **parameters)
-            return success, None
+            if success:
+                return True, None
+            else:
+                # Tool function returned False, indicating failure
+                error_msg = f"Tool {tool_name} failed for bot {bot_id}"
+                return False, error_msg
         except Exception as e:
             error_msg = f"Error executing {tool_name} for bot {bot_id}: {e}"
             logger.error(error_msg)

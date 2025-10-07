@@ -1,30 +1,13 @@
-"""Different tools to provide in the LLM call.
-
-Changes we need to the existing bot orchestrator:
-* Just rip it out the existing infrastructure
-* Replace it with this new tool use strategy
-* We should have a prompt for the following situations:
-    * We should set "tool_choice": "tool" to force the LLM to use one of the tools.
-    1) Bot's turn to ask. Include "tools": [ask_tool, accuse_tool] # guess_location_tool if they're the spy
-    2) Bot's turn to answer. Include "tools": [answer_tool, accuse_tool] # guess_location_tool if they're the spy
-    3) Not the bot's turn. Include "tools": [] # guess_location_tool if they're the spy, accuse_tool if they haven't accused this round
-* After every turn, we should query all the bots asynchronously with the following strategy:
-    * If they have no available tools, no need to query that particular bot (for example, they aren't the spy and have already accused)
-    * We should always await gather all responses from the LLMs
-    * If any bots accuse with non-null target, just pick any of them to process (random or first to finish)
-    * Process any parallel tool calls from the same bot the following order: [guess_location, ask, answer, accuse]
-    * Only move to the human player's turn once all of the between-turn requests to bots are finished
-"""
-
+"""Tools for game actions taken by bots"""
 ask_tool = {
         "name": "ask",
-        "description": "Ask another player a question",
+        "description": "Ask another player a question. Non-spies: DO NOT ask questions that might reveal the location to the spy",
         "input_schema": {
             "type": "object",
             "properties": {
                 "thought": {"type": "string", "description": "Your private thoughts, reasoning, and strategy"},
                 "question": {"type": "string", "description": "Brief (1 sentence) question to the target"},
-                "target": {"type": "string", "description": "ID of the player to ask (CAN'T be the player that just asked you)"}
+                "target": {"type": "string", "description": "ID of the player to ask (CANNOT be the last player that questioned you)"}
             },
             "required": ["thought", "question", "target"]
         }
@@ -63,7 +46,7 @@ def ask(game, bot_id: str, thought: str, question: str, target: str) -> bool:
 
 answer_tool = {
         "name": "answer",
-        "description": "Answer the question just asked to you",
+        "description": "Answer the question just asked to you. Non-spies: DO NOT answer in a way that might reveal the location to the spy",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -96,12 +79,12 @@ def answer(game, bot_id: str, thought: str, answer: str) -> bool:
 
 accuse_tool = {
         "name": "accuse",
-        "description": "Optionally accuse another player of being a spy. Stops the game timer and forces a vote.",
+        "description": "Accuse another player of being a spy. Stops the game timer and forces a vote. May only be used once",
         "input_schema": {
             "type": "object",
             "properties": {
                 "thought": {"type": "string", "description": "Your private thoughts, reasoning, and strategy"},
-                "target": {"type": "string", "description": "ID of the player to accuse and vote guilty. Leave empty if you do not want to accuse anyone right now."}
+                "target": {"type": "string", "description": "ID of the player to accuse and vote guilty. No accusation made if left empty"}
             },
             "required": ["thought"]
         }
@@ -145,7 +128,7 @@ def accuse(game, bot_id: str, thought: str, target: str = "") -> bool:
 
 vote_tool = {
         "name": "vote",
-        "description": "Vote on whether the currently accused player is guilty of being the spy.",
+        "description": "Vote on whether the accused player is guilty of being the spy.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -197,12 +180,12 @@ def vote(game, bot_id: str, thought: str, guilty: bool) -> bool:
 
 guess_location_tool = {
         "name": "guess_location",
-        "description": "Guess the location. Reveals yourself as the spy and ends the game. You win if correct and lose if not",
+        "description": "Guess the location. Reveals yourself as the spy and ends the game. You win if correct and lose if not.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "thought": {"type": "string", "description": "Your private thoughts, reasoning, and strategy"},
-                "location": {"type": "string", "enum": ["Airplane", "Amusement Park", "Bank", "Beach", "Carnival", "Casino", "Circus Tent", "Corporate Party", "Crusader Army", "Day Spa", "Embassy", "Hospital", "Hotel", "Military Base", "Movie Studio", "Nightclub", "Ocean Liner", "Passenger Train", "Pirate Ship", "Police Station", "Polar Station", "Restaurant", "School", "Service Station", "Space Station", "Submarine", "Supermarket", "Theater", "University", "Zoo"]}
+                "location": {"type": "string", "description": "The game location, matching the case"}
             },
             "required": ["thought", "location"]
         }

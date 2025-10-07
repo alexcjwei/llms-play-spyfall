@@ -14,8 +14,7 @@ class BotOrchestrator:
     def __init__(self):
         self.pending_tasks: Dict[str, asyncio.Task] = {}  # game_id -> pending async task
         # Will be injected from main.py to avoid circular imports
-        self.bot_service = None  # Legacy bot service (will be deprecated)
-        self.parallel_bot_service = None  # New parallel bot service
+        self.parallel_bot_service = None
         self.game_service = None
         self.connection_manager = None
 
@@ -38,10 +37,6 @@ class BotOrchestrator:
         self.pending_tasks[game_id] = task
         logger.info(f"Scheduled new task for game {game_id}")
 
-    def schedule_next_bot_action(self, game_id: str, delay: int = 2):
-        """Schedule the next bot action with a delay."""
-        task = asyncio.create_task(self._delayed_bot_turn(game_id, delay))
-        self.schedule_task(game_id, task)
 
     def schedule_parallel_bot_action(self, game_id: str, delay: int = 2):
         """Schedule parallel bot querying after a turn completion."""
@@ -68,8 +63,7 @@ class BotOrchestrator:
         if self.parallel_bot_service:
             await self._handle_parallel_bot_actions(game)
         else:
-            logger.warning("Parallel bot service not available, falling back to legacy behavior")
-            await self._legacy_bot_turn(game_id, delay=0)
+            logger.error("Parallel bot service not available - bot actions cannot be processed")
 
     async def _handle_parallel_bot_actions(self, game):
         """Handle parallel bot actions using the new system."""
@@ -129,8 +123,7 @@ class BotOrchestrator:
 
         except Exception as e:
             logger.error(f"Error in parallel bot actions for game {game.id}: {e}")
-            # Fallback to legacy system on error
-            await self._legacy_bot_turn(game.id, delay=0)
+            # Log error but don't fallback - let the game continue with human players
 
     def _schedule_next_turn_if_needed(self, game):
         """Schedule next turn or bot actions if needed."""
@@ -145,74 +138,6 @@ class BotOrchestrator:
             self.schedule_parallel_bot_action(game.id, delay=1)
         # If it's a human's turn, wait for human action
 
-    async def _legacy_bot_turn(self, game_id: str, delay: int = 2):
-        """Legacy bot turn handling (fallback for old system)."""
-        if delay > 0:
-            await asyncio.sleep(delay)
-
-        # Check if game still exists
-        game = self.game_service.get_game(game_id)
-        if not game:
-            logger.info(f"Legacy bot turn: Game {game_id} not found after delay")
-            return
-
-        # Only proceed if game allows bot actions
-        if game.status not in [
-            GameStatus.IN_PROGRESS,
-            GameStatus.VOTING,
-            GameStatus.END_OF_ROUND_VOTING,
-        ]:
-            logger.info(
-                f"Legacy bot turn: Game {game_id} not in valid state for bot actions (status: {game.status})"
-            )
-            return
-
-        # For IN_PROGRESS games, don't act if clock is stopped (voting states expect clock to be stopped)
-        if game.status == GameStatus.IN_PROGRESS and game.clock_stopped:
-            logger.info(
-                f"Legacy bot turn: Game {game_id} clock stopped during IN_PROGRESS"
-            )
-            return
-
-        # Route to appropriate handler
-        if game.status == GameStatus.VOTING or game.status == GameStatus.END_OF_ROUND_VOTING:
-            # First check if a bot needs to make an accusation (end of round)
-            if game.status == GameStatus.END_OF_ROUND_VOTING and not game.current_accusation:
-                success, error = await self.bot_service.handle_bot_end_of_round_accusation(game)
-                if success:
-                    await self.connection_manager.send_game_state(game_id)
-                    # Schedule voting for this accusation
-                    self.schedule_next_bot_action(game_id, delay=0)
-                elif error and "should vote" not in error.lower():
-                    logger.info(f"Bot end-of-round accusation: {error}")
-                return
-
-            # Handle voting
-            votes_cast, errors = await self.bot_service.handle_bot_voting(game)
-            if votes_cast > 0:
-                await self.connection_manager.send_game_state(game_id)
-
-                # If we're in end-of-round voting and vote resolution moved to next accuser, schedule bot logic
-                if (
-                    game.status == GameStatus.END_OF_ROUND_VOTING
-                    and not game.current_accusation
-                ):
-                    logger.info(f"Vote resolution complete, scheduling bot logic for next accuser")
-                    self.schedule_next_bot_action(game_id, delay=0)
-
-        elif game.status == GameStatus.IN_PROGRESS:
-            # Handle Q&A turn
-            success, error = await self.bot_service.handle_bot_turn(game)
-            if success:
-                await self.connection_manager.send_game_state(game_id)
-                # Schedule next bot action
-                self.schedule_next_bot_action(game_id)
-            elif error and "not a bot's turn" not in error.lower():
-                logger.info(f"Bot turn handling: {error}")
-
-    async def _delayed_bot_turn(self, game_id: str, delay: int = 2):
-        """Wrapper for legacy bot turn handling."""
-        await self._legacy_bot_turn(game_id, delay)
 
 
 # Global orchestrator instance

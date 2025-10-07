@@ -114,3 +114,4 @@ The game includes 30 locations with 7 roles each. Key examples:
 
 Refer to `spec.md` for complete functional requirements, technical specifications, and implementation details.
 - Use assertive programming to verify assumptions throughout code. You'd rather have code crash from an assert than have assumptions cause issues down the line.
+- Activate the venv in backend before running any python commands there

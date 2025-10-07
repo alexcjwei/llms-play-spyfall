@@ -17,9 +17,8 @@ from models import Game, Player, GameStatus
 
 # Import services
 from services import game_service, llm_service
-from services.bot_service import BotService
 from services.parallel_bot_service import ParallelBotService
-from prompts import prompt_service
+# Legacy prompts import removed - using tool-based system
 
 # Import websocket components
 from websocket import connection_manager, handlers
@@ -47,15 +46,13 @@ app.add_middleware(
 )
 
 # Initialize bot services with dependencies
-bot_service_instance = BotService(llm_service, prompt_service)
 parallel_bot_service_instance = ParallelBotService(llm_service)
 
 # Inject game_service into connection_manager
 connection_manager.set_game_service(game_service)
 
 # Inject dependencies into bot orchestrator to avoid circular imports
-bot_orchestrator.bot_service = bot_service_instance  # Legacy bot service (fallback)
-bot_orchestrator.parallel_bot_service = parallel_bot_service_instance  # New parallel bot service
+bot_orchestrator.parallel_bot_service = parallel_bot_service_instance
 bot_orchestrator.game_service = game_service
 bot_orchestrator.connection_manager = connection_manager
 

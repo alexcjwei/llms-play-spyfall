@@ -34,7 +34,7 @@ def build_bot_tool_prompt(
         role = "Spy"
     else:
         location = game.location.name if game.location else "Unknown"
-        role = bot_player.role.value if bot_player.role else "Unknown"
+        role = bot_player.role if bot_player.role else "Unknown"
 
     # Build player list with question targeting info
     player_list = []
@@ -85,44 +85,21 @@ def build_bot_tool_prompt(
         accuser_name = accuser.name if accuser else "Unknown"
         accused_name = accused.name if accused else "Unknown"
 
-        # Show voting status
-        vote_status = []
-        for player in game.players:
-            if player.id == game.current_accusation.accused_id:
-                continue  # Accused player cannot vote
-            if player.id in game.current_accusation.votes:
-                vote = "GUILTY" if game.current_accusation.votes[player.id] else "INNOCENT"
-                vote_status.append(f"- {player.name}: {vote}")
-            else:
-                vote_status.append(f"- {player.name}: (not voted yet)")
-
-        vote_status_text = "\n".join(vote_status) if vote_status else "No votes cast yet."
-
         accusation_context = f"""
-## Current Accusation
 **{accuser_name}** has accused **{accused_name}** of being the spy!
-
-### Voting Status
-{vote_status_text}
-
 """
-
     # Format the prompt
     prompt = f"""You are a cunning, observant, and socially aware AI playing the social deduction game Spyfall. You are playing as {bot_player.name} and it is your turn to {action_context}.
 
-# About Spyfall
-## Overview
+Spyfall background:
+<background>
 Spyfall is a social deduction game. Each round, players are assigned a location and role. One player is the spy who doesn't know the location.
-- **The spy's objective** is to avoid exposure until the end of a given round or identify the current location.
-- **The non-spies' objective** is to establish consensus on the identity of the spy and expose him or her.
+- **The spy's objective** is to avoid exposure until the end of a given round or identify the current location. Their object is to listen as carefully as possible to what the other players say and do their best to avoid blowing their cover while also trying to identify the location. A spy who doesn't attempt to guess the location is taking a risk — it is entirely possible that the other players will identify them after discussion and voting.
+- **The non-spies' objective** is to establish consensus on the identity of the spy and expose him or her while not revealing their location. Therefore, the non-spies should refrain from being too explicit in their questions: (for example, "How much cash did the robbers steal yesterday?" The spy will instantly identify the location as the bank).
 
-## Strategies
-- Non-spies: to identify the spy and avoid revealing their location. Therefore, the non-spies should refrain from being too explicit in their questions: (for example, "How much cash did the robbers steal yesterday?" The spy will instantly identify the location as the bank).
-- Spy: to listen as carefully as possible to what the other players say and do their best to avoid blowing their cover while also trying to identify the location before eight minutes have passed. A spy who doesn't attempt to guess the location is taking a risk — it is entirely possible that the other players will identify them after discussion and voting.
-
-## Game locations
-The following are the possible game locations. The spy knows that the secret location is one of the following:
-Airplane
+The spy knows the location is one of the following:
+<locations>
+- Airplane
 - Amusement Park
 - Bank
 - Beach
@@ -152,26 +129,34 @@ Airplane
 - Theater
 - University
 - Zoo
+</locations>
+</background>
 
-# Current Game State
-## Your Card
+Use this game context to respond:
+<context>
+This is the role card you were dealt at the beginning of the game:
+<role_card>
 Location: {location}
 Role: {role}
+</role_card>
 
-## Players
-The following is the list of players and their player_id:
+These are all the players and their player_id:
+<players>
 {player_name_and_id}
+</players>
 
-**IMPORTANT QUESTIONING RULES:**
-- You CANNOT ask yourself a question
-- You CANNOT ask the player who just asked you a question (marked as "CANNOT ASK" above)
-- You CAN ask any other player (marked as "can ask" above)
-
-## Question & Answer Log
+This is the game log up to this point:
+<game_events>
 {qa_history}
 {accusation_context}
-# Your Task
-Use the relevant tools to perform your next game action. Before calling a tool, do some analysis. First, think about which of the provided tools are relevant to perform your desired action. Second, go through each of the required parameters of the relevant tools and determine if the user has directly provided or given enough information to infer a value. When deciding if the parameter can be inferred, carefully consider all the context to see if it supports a specific value. If all of the required parameters are present or can be reasonably inferred, proceed with the tool call. BUT, if one of the values for a required parameter is missing, DO NOT invoke the function (not even with fillers for the missing params) and instead, ask the user to provide the missing parameters. DO NOT ask for more information on optional parameters if it is not provided."""
+</game_events>
+</context>
+
+<instructions>
+Consider the game context to take the next game action.
+Respond naturally and concisely.
+Your action should help you get closer to your goal of winning the game.
+</instructions>"""
 
     return prompt
 

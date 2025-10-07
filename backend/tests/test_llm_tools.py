@@ -57,7 +57,7 @@ class TestToolPromptBuilder:
         assert "Alice (ID: human1)" in prompt
         assert "Bot Alice (ID: bot1)" in prompt
         assert "Bot Bob (ID: bot2)" in prompt
-        assert "Use the relevant tools" in prompt
+        assert "Consider the game context to take the next game action" in prompt
 
     def test_build_bot_tool_prompt_spy(self, sample_game):
         """Test prompt building for spy bot"""
@@ -80,10 +80,12 @@ class TestToolPromptBuilder:
         # Add a question message to the bot
         from models.message import Message
         question_msg = Message(
+            id="msg1",
+            type="question",
             from_id="human1",
             to_id="bot1",
             content="What do you do here?",
-            type="question"
+            timestamp=1234567890.0
         )
         sample_game.messages = [question_msg]
 
@@ -113,10 +115,12 @@ class TestToolSelector:
         # Add a question message to the bot
         from models.message import Message
         question_msg = Message(
+            id="msg2",
+            type="question",
             from_id="human1",
             to_id="bot1",
             content="What do you do here?",
-            type="question"
+            timestamp=1234567890.0
         )
         sample_game.messages = [question_msg]
 
@@ -399,22 +403,22 @@ class TestToolIntegrationEndToEnd:
             assert "name" in tool
             assert "description" in tool
             assert "input_schema" in tool
-            assert "required" in tool
 
             # Check schema structure
             schema = tool["input_schema"]
-            required_fields = tool["required"]
+            assert "required" in schema
+            required_fields = schema["required"]
 
             for field in required_fields:
-                assert field in schema, f"Required field {field} not in schema for {tool['name']}"
+                assert field in schema["properties"], f"Required field {field} not in schema properties for {tool['name']}"
 
             # Check thought field is always present and required
-            assert "thought" in schema
+            assert "thought" in schema["properties"]
             assert "thought" in required_fields
 
     def test_location_enum_completeness(self):
         """Test that guess_location tool has complete location enum"""
-        location_enum = guess_location_tool["input_schema"]["location"]["enum"]
+        location_enum = guess_location_tool["input_schema"]["properties"]["location"]["enum"]
         location_names = [loc.name for loc in LOCATIONS]
 
         assert len(location_enum) == len(location_names)

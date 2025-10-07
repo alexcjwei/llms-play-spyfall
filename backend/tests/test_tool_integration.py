@@ -97,10 +97,12 @@ class TestToolIntegration:
 
         # First, add a question that needs answering
         question_message = Message(
+            id="msg1",
+            type="question",
             from_id="human1",
             to_id="bot1",
             content="What's your role here?",
-            type="question"
+            timestamp=1234567890.0
         )
         game.messages = [question_message]
         game.current_turn = "bot1"
@@ -331,11 +333,10 @@ class TestToolIntegration:
         bot_responses = await parallel_bot_service.query_all_bots(game)
         result = await parallel_bot_service.process_bot_responses(game, bot_responses)
 
-        # Verify priority order: guess_location (1), ask (2), accuse (4)
-        assert len(result.actions_taken) == 3
+        # Verify guess_location is processed first and ends game
+        assert len(result.actions_taken) == 1
         assert result.actions_taken[0]['action'] == 'guess_location'
-        assert result.actions_taken[1]['action'] == 'ask'
-        assert result.actions_taken[2]['action'] == 'accuse'
+        assert result.game_ended == True
 
     def test_tool_prompt_contextual_accuracy(self, full_game_setup):
         """Test that prompts are built with correct context"""
@@ -353,10 +354,12 @@ class TestToolIntegration:
 
         # Add a question and test answer context
         question_msg = Message(
+            id="msg2",
+            type="question",
             from_id="human1",
             to_id="bot1",
             content="What's your favorite part of the job?",
-            type="question"
+            timestamp=1234567890.0
         )
         game.messages = [question_msg]
 
@@ -364,7 +367,7 @@ class TestToolIntegration:
         assert context == "answer the question asked to you"
 
         answer_prompt = build_bot_tool_prompt(game, "bot1", context)
-        assert "Alice asked Detective Bot: What's your favorite part of the job?" in answer_prompt
+        assert "**Alice** asked **Detective Bot**: What's your favorite part of the job?" in answer_prompt
 
     def test_tool_selector_game_state_awareness(self, full_game_setup):
         """Test that tool selector correctly responds to game state"""
@@ -378,7 +381,7 @@ class TestToolIntegration:
         assert 'guess_location' not in tool_names  # Not spy
 
         # Test when bot needs to answer
-        question_msg = Message(from_id="human1", to_id="bot1", content="Test?", type="question")
+        question_msg = Message(id="msg3", type="question", from_id="human1", to_id="bot1", content="Test?", timestamp=1234567890.0)
         game.messages = [question_msg]
 
         tools = ToolSelector.get_available_tools(game, "bot1")
