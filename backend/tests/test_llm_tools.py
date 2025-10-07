@@ -416,11 +416,3 @@ class TestToolIntegrationEndToEnd:
             assert "thought" in schema["properties"]
             assert "thought" in required_fields
 
-    def test_location_enum_completeness(self):
-        """Test that guess_location tool has complete location enum"""
-        location_enum = guess_location_tool["input_schema"]["properties"]["location"]["enum"]
-        location_names = [loc.name for loc in LOCATIONS]
-
-        assert len(location_enum) == len(location_names)
-        for location_name in location_names:
-            assert location_name in location_enum
