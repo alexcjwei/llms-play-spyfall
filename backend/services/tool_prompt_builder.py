@@ -1,6 +1,5 @@
 """Prompt builder for tool-based bot interactions"""
 import logging
-from typing import Dict, Any, List
 from models import Game
 
 logger = logging.getLogger(__name__)
@@ -34,7 +33,7 @@ def build_bot_tool_prompt(
         role = "Spy"
     else:
         location = game.location.name if game.location else "Unknown"
-        role = bot_player.role.name if bot_player.role else "Unknown"
+        role = bot_player.location_role if bot_player.location_role else "Unknown"
 
     # Build player list with question targeting info
     player_list = []
@@ -158,9 +157,10 @@ This is the game log up to this point, which may include your previous actions:
 </context>
 
 <instructions>
-Consider the game context to take the next game action.
+It's now your turn as {bot_player.name} to {action_context}.
+First, think out loud about the current game state.
+Then, choose tool(s) and parameters that help you achieve your goal.
 Respond naturally and concisely.
-Your action should help you get closer to your goal of winning the game.
 </instructions>"""
 
     return prompt
