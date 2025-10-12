@@ -41,16 +41,26 @@ class ToolSelector:
 
         # Handle voting phases
         if game.status in [GameStatus.VOTING, GameStatus.END_OF_ROUND_VOTING]:
-            # During voting, only provide vote tool to bots who can vote
-            if game.current_accusation and bot_id != game.current_accusation.accused_id:
-                # Check if bot hasn't voted yet
-                if bot_id not in game.current_accusation.votes:
-                    available_tools.append(vote_tool)
-                    logger.debug(f"Bot {bot_id} can vote on current accusation")
+            # Check if there's an active accusation
+            if game.current_accusation:
+                # During voting, only provide vote tool to bots who can vote
+                if bot_id != game.current_accusation.accused_id:
+                    # Check if bot hasn't voted yet
+                    if bot_id not in game.current_accusation.votes:
+                        available_tools.append(vote_tool)
+                        logger.debug(f"Bot {bot_id} can vote on current accusation")
+                    else:
+                        logger.debug(f"Bot {bot_id} has already voted")
                 else:
-                    logger.debug(f"Bot {bot_id} has already voted")
-            else:
-                logger.debug(f"Bot {bot_id} cannot vote (is accused or no accusation)")
+                    logger.debug(f"Bot {bot_id} cannot vote (is accused)")
+            elif game.status == GameStatus.END_OF_ROUND_VOTING:
+                # No active accusation yet in end-of-round phase
+                # Current player needs to make an accusation
+                if game.current_turn == bot_id:
+                    bot_player = next((p for p in game.players if p.id == bot_id), None)
+                    if bot_player and not bot_player.has_accused_this_round:
+                        available_tools.append(accuse_tool)
+                        logger.debug(f"Bot {bot_id} can make end-of-round accusation")
             return available_tools
 
         # Handle regular gameplay (IN_PROGRESS)
@@ -59,12 +69,33 @@ class ToolSelector:
 
         # If it's the bot's turn, determine if they need to ask or answer
         if is_bot_turn:
-            last_message = game.messages[-1] if game.messages else None
-            if (last_message and
-                last_message.type == "question" and
-                last_message.to_id == bot_id):
+            # Check if bot has an unanswered question by:
+            # 1. Finding the most recent question TO this bot
+            # 2. Checking if there's an answer FROM this bot after that question
+            needs_to_answer = False
+            if game.last_questioned_by is not None:
+                # Find the most recent question event to this bot
+                last_question_idx = None
+                for i in range(len(game.events) - 1, -1, -1):
+                    event = game.events[i]
+                    if event.type == "question" and event.content.get("to_id") == bot_id:
+                        last_question_idx = i
+                        break
+
+                # Check if there's an answer from this bot after that question
+                if last_question_idx is not None:
+                    has_answered = False
+                    for i in range(last_question_idx + 1, len(game.events)):
+                        event = game.events[i]
+                        if event.type == "answer" and event.player_id == bot_id:
+                            has_answered = True
+                            break
+
+                    needs_to_answer = not has_answered
+
+            if needs_to_answer:
                 # Bot needs to answer a question
-                logger.debug(f"Bot {bot_id} turn - needs to answer")
+                logger.debug(f"Bot {bot_id} turn - needs to answer (last_questioned_by: {game.last_questioned_by})")
                 available_tools.append(answer_tool)
                 available_tools.append(accuse_tool)
             else:

@@ -62,8 +62,8 @@ def answer(game, bot_id: str, thought: str, answer: str) -> bool:
     logger.info(f"Bot {bot_id} thinking: {thought}")
 
     # Validate there's a question waiting for this bot to answer
-    last_message = game.messages[-1] if game.messages else None
-    if not last_message or last_message.type != "question" or last_message.to_id != bot_id:
+    last_event = game.events[-1] if game.events else None
+    if not last_event or last_event.type != "question" or last_event.content.get("to_id") != bot_id:
         logger.warning(f"Bot {bot_id} tried to answer but no question was asked to them")
         return False
 
@@ -114,10 +114,17 @@ def accuse(game, bot_id: str, thought: str, target: str = "") -> bool:
         logger.warning(f"Bot {bot_id} has already accused this round")
         return False
 
-    # Make accusation using existing game logic
-    success = game.stop_clock_for_accusation(bot_id, target)
-    if success:
-        logger.info(f"Bot {bot_id} accused {target} of being the spy")
+    # Make accusation using appropriate game logic based on game state
+    if game.status == GameStatus.END_OF_ROUND_VOTING:
+        # End-of-round accusation
+        success = game.make_end_of_round_accusation(bot_id, target)
+        if success:
+            logger.info(f"Bot {bot_id} made end-of-round accusation against {target}")
+    else:
+        # Regular mid-game accusation
+        success = game.stop_clock_for_accusation(bot_id, target)
+        if success:
+            logger.info(f"Bot {bot_id} accused {target} of being the spy")
 
     return success
 

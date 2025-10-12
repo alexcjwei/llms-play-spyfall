@@ -52,7 +52,7 @@ export interface GameState {
   role?: string;
   isSpy: boolean;
   availableLocations?: string[];
-  messages: Message[];
+  events: GameEvent[];
   clockStopped: boolean;
   lastQuestionedBy?: string;
   qaRoundsCompleted?: number;
@@ -66,6 +66,26 @@ export interface GameState {
   endReason?: string;
   spyId?: string;
   timer?: TimerState;
+}
+
+export interface GameEvent {
+  type: string;
+  playerId: string;
+  content: {
+    to_id?: string;
+    text?: string;
+    accused_id?: string;
+    vote?: boolean;
+    guess?: string;
+    correct?: boolean;
+    actual_location?: string;
+    result?: string;
+    was_spy?: boolean;
+    reason?: string;
+    winner?: string;
+  };
+  timestamp: number;
+  formattedText: string;
 }
 
 export interface Message {

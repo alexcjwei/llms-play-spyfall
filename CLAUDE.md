@@ -35,7 +35,7 @@ cd backend
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install fastapi uvicorn websockets openai ollama-python
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+uvicorn main:app --reload --reload-exclude 'tests/*' --host 0.0.0.0 --port 8000
 ```
 
 **Frontend:**

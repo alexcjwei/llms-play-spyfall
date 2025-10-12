@@ -9,8 +9,9 @@ from services.tool_prompt_builder import build_bot_tool_prompt, get_action_conte
 from services.tool_selector import ToolSelector
 from tools.game_actions import ask, answer, accuse, guess_location
 from models import Game, Player, GameStatus
+from models.player import PlayerRole
 from models.location import LOCATIONS
-from models.message import Message
+from models.message import GameEvent, create_question_event
 
 
 @pytest.fixture
@@ -31,10 +32,13 @@ def full_game_setup():
     game.spy_id = "human1"
 
     # Assign roles
-    human_player.role = "Spy"
-    bot_player_1.role = "Teller"
-    bot_player_2.role = "Security Guard"
-    bot_player_3.role = "Manager"
+    human_player.role = PlayerRole.SPY
+    bot_player_1.role = PlayerRole.INNOCENT
+    bot_player_1.location_role = "Teller"
+    bot_player_2.role = PlayerRole.INNOCENT
+    bot_player_2.location_role = "Security Guard"
+    bot_player_3.role = PlayerRole.INNOCENT
+    bot_player_3.location_role = "Manager"
 
     return game
 
@@ -53,13 +57,13 @@ class TestToolIntegration:
                      target="human1")
 
         assert success is True
-        assert len(game.messages) == 1
+        assert len(game.events) == 1
 
-        message = game.messages[0]
-        assert message.from_id == "bot1"
-        assert message.to_id == "human1"
-        assert message.type == "question"
-        assert "security measures" in message.content
+        event = game.events[0]
+        assert event.player_id == "bot1"
+        assert event.content.get("to_id") == "human1"
+        assert event.type == "question"
+        assert "security measures" in event.content.get("text", "")
 
         # Turn should advance to human1
         assert game.current_turn == "human1"
@@ -75,7 +79,7 @@ class TestToolIntegration:
                      target="nonexistent")
 
         assert success is False
-        assert len(game.messages) == 0
+        assert len(game.events) == 0
         assert game.current_turn == "bot1"  # Turn shouldn't advance
 
     def test_ask_tool_self_target(self, full_game_setup):
@@ -89,23 +93,23 @@ class TestToolIntegration:
                      target="bot1")
 
         assert success is False
-        assert len(game.messages) == 0
+        assert len(game.events) == 0
 
     def test_answer_tool_integration(self, full_game_setup):
         """Test answer tool integration"""
         game = full_game_setup
 
         # First, add a question that needs answering
-        question_message = Message(
-            id="msg1",
-            type="question",
-            from_id="human1",
-            to_id="bot1",
-            content="What's your role here?",
-            timestamp=1234567890.0
+        question_event = create_question_event(
+            from_player_id="human1",
+            from_player_name="Alice",
+            to_player_id="bot1",
+            to_player_name="Detective Bot",
+            question_text="What's your role here?"
         )
-        game.messages = [question_message]
+        game.events = [question_event]
         game.current_turn = "bot1"
+        game.last_questioned_by = "human1"
 
         # Bot1 answers the question
         success = answer(game, "bot1",
@@ -113,12 +117,12 @@ class TestToolIntegration:
                         answer="I help customers with their transactions and account inquiries.")
 
         assert success is True
-        assert len(game.messages) == 2
+        assert len(game.events) == 2
 
-        answer_message = game.messages[1]
-        assert answer_message.from_id == "bot1"
-        assert answer_message.type == "answer"
-        assert "transactions" in answer_message.content
+        answer_event = game.events[1]
+        assert answer_event.player_id == "bot1"
+        assert answer_event.type == "answer"
+        assert "transactions" in answer_event.content.get("text", "")
 
     def test_answer_tool_no_question(self, full_game_setup):
         """Test answer tool when no question was asked"""
@@ -130,7 +134,7 @@ class TestToolIntegration:
                         answer="I like working here.")
 
         assert success is False
-        assert len(game.messages) == 0
+        assert len(game.events) == 0
 
     def test_accuse_tool_integration(self, full_game_setup):
         """Test accuse tool integration"""
@@ -225,41 +229,57 @@ class TestToolIntegration:
         # Set up scenario: human's turn, bots can accuse or spy can guess
         game.current_turn = "human1"
 
+        # Add an event to trigger bot queries
+        question_event = create_question_event(
+            from_player_id="human1",
+            from_player_name="Alice",
+            to_player_id="bot1",
+            to_player_name="Detective Bot",
+            question_text="What do you think?"
+        )
+        game.events = [question_event]
+
         # Create LLM service and parallel bot service
         llm_service = LLMService()
         parallel_bot_service = ParallelBotService(llm_service)
 
         # Mock LLM responses
-        def mock_llm_query(prompt, bot_id, available_tools):
+        def mock_llm_query(messages, bot_id, available_tools, system):
             if bot_id == "bot1":  # Detective Bot - makes accusation
                 return {
                     "tool_calls": [{
+                        "id": "call_1",
                         "name": "accuse",
                         "parameters": {
                             "thought": "The human seems suspicious based on their answers",
                             "target": "human1"
                         }
-                    }]
+                    }],
+                    "response_content": [{"type": "tool_use", "id": "call_1", "name": "accuse", "input": {"thought": "The human seems suspicious based on their answers", "target": "human1"}}]
                 }
             elif bot_id == "bot2":  # Casual Bot - doesn't accuse
                 return {
                     "tool_calls": [{
+                        "id": "call_2",
                         "name": "accuse",
                         "parameters": {
                             "thought": "I'm not ready to accuse anyone yet",
                             "target": ""
                         }
-                    }]
+                    }],
+                    "response_content": [{"type": "tool_use", "id": "call_2", "name": "accuse", "input": {"thought": "I'm not ready to accuse anyone yet", "target": ""}}]
                 }
             else:  # bot3 - Analytical Bot - also suspicious
                 return {
                     "tool_calls": [{
+                        "id": "call_3",
                         "name": "accuse",
                         "parameters": {
                             "thought": "I agree with the detective",
                             "target": "human1"
                         }
-                    }]
+                    }],
+                    "response_content": [{"type": "tool_use", "id": "call_3", "name": "accuse", "input": {"thought": "I agree with the detective", "target": "human1"}}]
                 }
 
         llm_service.query_bot_with_tools = AsyncMock(side_effect=mock_llm_query)
@@ -292,15 +312,26 @@ class TestToolIntegration:
         game.spy_id = "bot1"
         game.current_turn = "bot1"
 
+        # Add an event to trigger bot queries
+        question_event = create_question_event(
+            from_player_id="human1",
+            from_player_name="Alice",
+            to_player_id="bot1",
+            to_player_name="Detective Bot",
+            question_text="What do you think?"
+        )
+        game.events = [question_event]
+
         llm_service = LLMService()
         parallel_bot_service = ParallelBotService(llm_service)
 
         # Mock bot1 making multiple tool calls in wrong order
-        def mock_llm_query(prompt, bot_id, available_tools):
+        def mock_llm_query(messages, bot_id, available_tools, system):
             if bot_id == "bot1":
                 return {
                     "tool_calls": [
                         {
+                            "id": "call_1",
                             "name": "accuse",
                             "parameters": {
                                 "thought": "I'll accuse someone",
@@ -308,6 +339,7 @@ class TestToolIntegration:
                             }
                         },
                         {
+                            "id": "call_2",
                             "name": "ask",
                             "parameters": {
                                 "thought": "I'll ask a question",
@@ -316,16 +348,22 @@ class TestToolIntegration:
                             }
                         },
                         {
+                            "id": "call_3",
                             "name": "guess_location",
                             "parameters": {
                                 "thought": "I'll guess the location",
                                 "location": "Bank"
                             }
                         }
+                    ],
+                    "response_content": [
+                        {"type": "tool_use", "id": "call_1", "name": "accuse", "input": {"thought": "I'll accuse someone", "target": "bot2"}},
+                        {"type": "tool_use", "id": "call_2", "name": "ask", "input": {"thought": "I'll ask a question", "question": "What do you do here?", "target": "human1"}},
+                        {"type": "tool_use", "id": "call_3", "name": "guess_location", "input": {"thought": "I'll guess the location", "location": "Bank"}}
                     ]
                 }
             else:
-                return {"tool_calls": []}
+                return {"tool_calls": [], "response_content": []}
 
         llm_service.query_bot_with_tools = AsyncMock(side_effect=mock_llm_query)
 
@@ -353,21 +391,20 @@ class TestToolIntegration:
         assert "non-spies' objective" in prompt.lower()
 
         # Add a question and test answer context
-        question_msg = Message(
-            id="msg2",
-            type="question",
-            from_id="human1",
-            to_id="bot1",
-            content="What's your favorite part of the job?",
-            timestamp=1234567890.0
+        question_event = create_question_event(
+            from_player_id="human1",
+            from_player_name="Alice",
+            to_player_id="bot1",
+            to_player_name="Detective Bot",
+            question_text="What's your favorite part of the job?"
         )
-        game.messages = [question_msg]
+        game.events = [question_event]
 
         context = get_action_context(game, "bot1")
         assert context == "answer the question asked to you"
 
         answer_prompt = build_bot_tool_prompt(game, "bot1", context)
-        assert "**Alice** asked **Detective Bot**: What's your favorite part of the job?" in answer_prompt
+        assert "**Alice** asked **Detective Bot**: \"What's your favorite part of the job?\"" in answer_prompt
 
     def test_tool_selector_game_state_awareness(self, full_game_setup):
         """Test that tool selector correctly responds to game state"""
@@ -381,8 +418,14 @@ class TestToolIntegration:
         assert 'guess_location' not in tool_names  # Not spy
 
         # Test when bot needs to answer
-        question_msg = Message(id="msg3", type="question", from_id="human1", to_id="bot1", content="Test?", timestamp=1234567890.0)
-        game.messages = [question_msg]
+        question_event = create_question_event(
+            from_player_id="human1",
+            from_player_name="Alice",
+            to_player_id="bot1",
+            to_player_name="Detective Bot",
+            question_text="Test?"
+        )
+        game.events = [question_event]
 
         tools = ToolSelector.get_available_tools(game, "bot1")
         tool_names = [t['name'] for t in tools]

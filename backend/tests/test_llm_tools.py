@@ -9,7 +9,9 @@ from services.tool_prompt_builder import build_bot_tool_prompt, get_action_conte
 from services.tool_selector import ToolSelector
 from tools.game_actions import ask_tool, answer_tool, accuse_tool, guess_location_tool
 from models import Game, Player, GameStatus
+from models.player import PlayerRole
 from models.location import LOCATIONS
+from models.message import create_question_event
 
 
 @pytest.fixture
@@ -36,9 +38,11 @@ def sample_game():
     game.spy_id = "human1"
 
     # Assign roles
-    human_player.role = "Spy"
-    bot_player_1.role = "Pilot"
-    bot_player_2.role = "Flight Attendant"
+    human_player.role = PlayerRole.SPY
+    bot_player_1.role = PlayerRole.INNOCENT
+    bot_player_1.location_role = "Pilot"
+    bot_player_2.role = PlayerRole.INNOCENT
+    bot_player_2.location_role = "Flight Attendant"
 
     return game
 
@@ -57,7 +61,6 @@ class TestToolPromptBuilder:
         assert "Alice (ID: human1)" in prompt
         assert "Bot Alice (ID: bot1)" in prompt
         assert "Bot Bob (ID: bot2)" in prompt
-        assert "Consider the game context to take the next game action" in prompt
 
     def test_build_bot_tool_prompt_spy(self, sample_game):
         """Test prompt building for spy bot"""
@@ -77,17 +80,15 @@ class TestToolPromptBuilder:
 
     def test_get_action_context_bot_turn_answer(self, sample_game):
         """Test action context when bot needs to answer"""
-        # Add a question message to the bot
-        from models.message import Message
-        question_msg = Message(
-            id="msg1",
-            type="question",
-            from_id="human1",
-            to_id="bot1",
-            content="What do you do here?",
-            timestamp=1234567890.0
+        # Add a question event to the bot
+        question_event = create_question_event(
+            from_player_id="human1",
+            from_player_name="Alice",
+            to_player_id="bot1",
+            to_player_name="Bot1",
+            question_text="What do you do here?"
         )
-        sample_game.messages = [question_msg]
+        sample_game.events = [question_event]
 
         context = get_action_context(sample_game, "bot1")
         assert context == "answer the question asked to you"
@@ -112,17 +113,15 @@ class TestToolSelector:
 
     def test_get_available_tools_bot_turn_answer(self, sample_game):
         """Test tools available when bot needs to answer"""
-        # Add a question message to the bot
-        from models.message import Message
-        question_msg = Message(
-            id="msg2",
-            type="question",
-            from_id="human1",
-            to_id="bot1",
-            content="What do you do here?",
-            timestamp=1234567890.0
+        # Add a question event to the bot
+        question_event = create_question_event(
+            from_player_id="human1",
+            from_player_name="Alice",
+            to_player_id="bot1",
+            to_player_name="Bot1",
+            question_text="What do you do here?"
         )
-        sample_game.messages = [question_msg]
+        sample_game.events = [question_event]
 
         tools = ToolSelector.get_available_tools(sample_game, "bot1")
 
@@ -204,9 +203,10 @@ class TestLLMToolIntegration:
             mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_response)
 
             result = await llm_service.query_bot_with_tools(
-                prompt="Test prompt",
+                messages=[{"role": "user", "content": "Test prompt"}],
                 bot_id="bot1",
-                available_tools=available_tools
+                available_tools=available_tools,
+                system="Test system prompt"
             )
 
             assert result is not None
@@ -252,9 +252,10 @@ class TestLLMToolIntegration:
             mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_response)
 
             result = await llm_service.query_bot_with_tools(
-                prompt="Test prompt",
+                messages=[{"role": "user", "content": "Test prompt"}],
                 bot_id="bot1",
-                available_tools=available_tools
+                available_tools=available_tools,
+                system="Test system prompt"
             )
 
             assert result is not None
@@ -278,9 +279,10 @@ class TestLLMToolIntegration:
             mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_response)
 
             result = await llm_service.query_bot_with_tools(
-                prompt="Test prompt",
+                messages=[{"role": "user", "content": "Test prompt"}],
                 bot_id="bot1",
-                available_tools=available_tools
+                available_tools=available_tools,
+                system="Test system prompt"
             )
 
             # Should return fallback response
@@ -311,9 +313,10 @@ class TestLLMToolIntegration:
             mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_response)
 
             result = await llm_service.query_bot_with_tools(
-                prompt="Test prompt",
+                messages=[{"role": "user", "content": "Test prompt"}],
                 bot_id="bot1",
-                available_tools=available_tools
+                available_tools=available_tools,
+                system="Test system prompt"
             )
 
             # Should return fallback response
@@ -381,9 +384,10 @@ class TestToolIntegrationEndToEnd:
 
             # Query LLM
             result = await llm_service.query_bot_with_tools(
-                prompt=prompt,
+                messages=[{"role": "user", "content": prompt}],
                 bot_id="bot1",
-                available_tools=available_tools
+                available_tools=available_tools,
+                system="Test system prompt"
             )
 
             # Verify result

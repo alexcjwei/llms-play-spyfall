@@ -25,8 +25,8 @@ export function useGameState(gameState: GameState | null, playerId: string) {
     const isMyTurn = gameState.currentTurn === playerId;
     const otherPlayers = gameState.players.filter(p => p.id !== playerId);
     const currentPlayer = gameState.players.find(p => p.id === playerId) || null;
-    const lastMessage = gameState.messages[gameState.messages.length - 1] || null;
-    const waitingForAnswer = lastMessage?.type === MESSAGE_TYPES.QUESTION && lastMessage.to === playerId;
+    const lastEvent = gameState.events?.[gameState.events.length - 1] || null;
+    const waitingForAnswer = lastEvent?.type === MESSAGE_TYPES.QUESTION && lastEvent.content?.to_id === playerId;
     const hasAlreadyAccused = currentPlayer?.hasAccusedThisRound || false;
 
     const getPlayerName = (id: string) => GameService.getPlayerName(gameState, id);
@@ -40,7 +40,7 @@ export function useGameState(gameState: GameState | null, playerId: string) {
       otherPlayers,
       currentPlayer,
       waitingForAnswer,
-      lastMessage,
+      lastMessage: lastEvent,
       hasAlreadyAccused,
       getPlayerName,
       isGameActive,

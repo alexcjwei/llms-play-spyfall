@@ -71,6 +71,9 @@ async def check_game_timers():
                 bot_orchestrator.cancel_pending_tasks(game_id)
                 # Send updated game state to all players
                 await connection_manager.send_game_state(game_id)
+                # Trigger bot orchestrator to handle end-of-round accusation phase
+                # (it will check game state and handle bot/human turns appropriately)
+                bot_orchestrator.schedule_parallel_bot_action(game_id, delay=1)
             await asyncio.sleep(1)  # Check every second
         except Exception as e:
             logger.error(f"Error in timer checking: {e}")

@@ -130,8 +130,34 @@ class BotOrchestrator:
         # If it's still a bot's turn after parallel actions, schedule another round
         current_player = next((p for p in game.players if p.id == game.current_turn), None)
         if current_player and current_player.is_bot:
-            # Still a bot's turn, schedule another parallel bot action
-            self.schedule_parallel_bot_action(game.id, delay=1)
+            # Check if the bot has available tools or new events to process
+            from services.bot_message_history import get_bot_history
+            from services.tool_selector import tool_selector
+
+            bot_history = get_bot_history(current_player.id)
+            available_tools = tool_selector.get_available_tools(game, current_player.id)
+
+            if bot_history:
+                # Bot has been initialized, check if there are new events or available tools
+                last_seen_index = bot_history.get("last_seen_event_index", 0)
+                has_new_events = len(game.events) > last_seen_index
+                has_tools = len(available_tools) > 0
+
+                if has_new_events or has_tools:
+                    # Bot has new events to process or tools to use, schedule another round
+                    reason = []
+                    if has_new_events:
+                        reason.append(f"{len(game.events) - last_seen_index} new events")
+                    if has_tools:
+                        reason.append(f"{len(available_tools)} available tools")
+                    logger.info(f"Bot {current_player.id} has {', '.join(reason)}, scheduling action")
+                    self.schedule_parallel_bot_action(game.id, delay=1)
+                else:
+                    logger.info(f"Bot {current_player.id} has no new events or tools, waiting for game state change")
+            else:
+                # Bot not yet initialized, schedule first query
+                logger.info(f"Bot {current_player.id} not initialized, scheduling first query")
+                self.schedule_parallel_bot_action(game.id, delay=1)
         elif game.status in [GameStatus.VOTING, GameStatus.END_OF_ROUND_VOTING]:
             # In voting state, use parallel bot system for voting
             logger.info(f"Game {game.id} in voting state - using parallel voting system")

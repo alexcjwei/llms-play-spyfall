@@ -11,6 +11,7 @@ from services.tool_prompt_builder import build_bot_tool_prompt, get_action_conte
 from services.tool_selector import ToolSelector
 from tools.game_actions import ask_tool, answer_tool, accuse_tool, guess_location_tool
 from models import Game, Player, GameStatus
+from models.player import PlayerRole
 from models.location import LOCATIONS
 
 # Load environment variables
@@ -46,8 +47,9 @@ def sample_game():
     game.spy_id = "human1"
 
     # Assign roles
-    human_player.role = "Spy"
-    bot_player.role = "Teller"
+    human_player.role = PlayerRole.SPY
+    bot_player.role = PlayerRole.INNOCENT
+    bot_player.location_role = "Teller"
 
     return game
 
@@ -70,9 +72,10 @@ async def test_tool_based_query(sample_game):
     # Query LLM with tools
     llm_service = LLMService()
     result = await llm_service.query_bot_with_tools(
-        prompt=prompt,
+        messages=[{"role": "user", "content": prompt}],
         bot_id="bot1",
         available_tools=available_tools,
+        system="You are a bot playing Spyfall.",
         max_tokens=500
     )
 
@@ -100,8 +103,9 @@ async def test_prompt_building():
     game.location = LOCATIONS[0]  # Airplane
     game.spy_id = "human1"
 
-    human_player.role = "Spy"
-    bot_player.role = "Pilot"
+    human_player.role = PlayerRole.SPY
+    bot_player.role = PlayerRole.INNOCENT
+    bot_player.location_role = "Pilot"
 
     # Test basic prompt building
     prompt = build_bot_tool_prompt(game, "bot1", "ask a question")

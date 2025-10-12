@@ -21,8 +21,36 @@ export function InputSection({
 
   const isMyTurn = gameState.currentTurn === playerId;
   const otherPlayers = gameState.players.filter(p => p.id !== playerId);
-  const lastChatMessage = gameState.messages[gameState.messages.length - 1];
-  const waitingForAnswer = lastChatMessage?.type === MESSAGE_TYPES.QUESTION && lastChatMessage.to === playerId;
+
+  // Check if player has an unanswered question by finding the most recent question TO this player
+  // and checking if there's an answer FROM this player after that question
+  const waitingForAnswer = (() => {
+    if (!gameState.lastQuestionedBy || !isMyTurn) return false;
+
+    // Find the most recent question event to this player
+    let lastQuestionIdx = -1;
+    for (let i = gameState.events.length - 1; i >= 0; i--) {
+      const event = gameState.events[i];
+      if (event.type === 'question' && event.content?.to_id === playerId) {
+        lastQuestionIdx = i;
+        break;
+      }
+    }
+
+    if (lastQuestionIdx === -1) return false;
+
+    // Check if there's an answer from this player after that question
+    for (let i = lastQuestionIdx + 1; i < gameState.events.length; i++) {
+      const event = gameState.events[i];
+      if (event.type === 'answer' && event.playerId === playerId) {
+        return false; // Already answered
+      }
+    }
+
+    return true; // Question found, no answer yet
+  })();
+
+  const lastEvent = gameState.events?.[gameState.events.length - 1];
 
   const getPlayerName = (playerId: string) => {
     return GameService.getPlayerName(gameState, playerId);
@@ -60,7 +88,7 @@ export function InputSection({
       ) : waitingForAnswer ? (
         <div>
           <h4 className="font-semibold mb-2 text-orange-600">
-            You need to answer: {lastChatMessage.content}
+            You need to answer: {lastEvent?.content?.text}
           </h4>
           <div className="flex space-x-2">
             <input

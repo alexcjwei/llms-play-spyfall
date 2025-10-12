@@ -6,6 +6,7 @@ from unittest.mock import Mock, AsyncMock, patch
 from services.parallel_bot_service import ParallelBotService, BotResponse, GameUpdateResult
 from services.llm_service import LLMService
 from models import Game, Player, GameStatus
+from models.player import PlayerRole
 from models.location import LOCATIONS
 
 
@@ -35,10 +36,13 @@ def sample_game():
     game.spy_id = "bot1"  # Make bot1 the spy
 
     # Assign roles
-    human_player.role = "Pilot"
-    bot_player_1.role = "Spy"
-    bot_player_2.role = "Flight Attendant"
-    bot_player_3.role = "Passenger"
+    human_player.role = PlayerRole.INNOCENT
+    human_player.location_role = "Pilot"
+    bot_player_1.role = PlayerRole.SPY
+    bot_player_2.role = PlayerRole.INNOCENT
+    bot_player_2.location_role = "Flight Attendant"
+    bot_player_3.role = PlayerRole.INNOCENT
+    bot_player_3.location_role = "Passenger"
 
     return game
 
@@ -50,7 +54,7 @@ class TestParallelBotService:
     async def test_query_all_bots_success(self, parallel_bot_service, sample_game):
         """Test successful parallel querying of all bots"""
         # Mock LLM responses for different bots
-        def mock_llm_response(prompt, bot_id, available_tools):
+        def mock_llm_response(messages, bot_id, available_tools, system):
             if bot_id == "bot1":  # Spy bot - can guess location
                 return {
                     "tool_calls": [{
@@ -103,22 +107,35 @@ class TestParallelBotService:
     @pytest.mark.asyncio
     async def test_query_all_bots_with_errors(self, parallel_bot_service, sample_game):
         """Test parallel querying with some bot errors"""
-        def mock_llm_response(prompt, bot_id, available_tools):
+        # Add an event to trigger bot queries
+        from models.message import create_question_event
+        question_event = create_question_event(
+            from_player_id="human1",
+            from_player_name="Alice",
+            to_player_id="bot1",
+            to_player_name="Bot Alice",
+            question_text="What do you think?"
+        )
+        sample_game.events = [question_event]
+
+        def mock_llm_response(messages, bot_id, available_tools, system):
             if bot_id == "bot1":
                 return {
                     "tool_calls": [{
+                        "id": "call_1",
                         "name": "guess_location",
                         "parameters": {
                             "thought": "I'll guess the location",
                             "location": "Bank"
                         }
-                    }]
+                    }],
+                    "response_content": [{"type": "tool_use", "id": "call_1", "name": "guess_location", "input": {"thought": "I'll guess the location", "location": "Bank"}}]
                 }
             elif bot_id == "bot2":
                 # Simulate LLM error
                 raise Exception("API timeout")
             else:
-                return {"tool_calls": []}
+                return {"tool_calls": [], "response_content": []}
 
         parallel_bot_service.llm_service.query_bot_with_tools = AsyncMock(side_effect=mock_llm_response)
 

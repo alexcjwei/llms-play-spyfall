@@ -7,7 +7,7 @@ import time
 
 from models.player import Player, PlayerRole
 from models.location import Location, LOCATIONS
-from models.message import Message, Accusation
+from models.message import GameEvent, Accusation, create_question_event, create_answer_event, create_accusation_event, create_vote_event, create_accusation_resolved_event, create_spy_guess_location_event, create_round_end_event, create_game_end_event
 from models.timer import GameTimer
 
 
@@ -36,7 +36,7 @@ class Game:
     location: Optional[Location] = None
     spy_id: Optional[str] = None
     created_at: float = field(default_factory=time.time)
-    messages: List[Message] = field(default_factory=list)
+    events: List[GameEvent] = field(default_factory=list)
     accusations: List[Accusation] = field(default_factory=list)
     clock_stopped: bool = False
     clock_stopped_by: Optional[str] = None
@@ -143,16 +143,22 @@ class Game:
         if self.last_questioned_by == to_player_id:
             return False
 
-        # Create message
-        message = Message(
-            id=f"{time.time()}_{from_player_id}",
-            type="question",
-            from_id=from_player_id,
-            to_id=to_player_id,
-            content=content,
-            timestamp=time.time()
+        # Get player names
+        from_player = next((p for p in self.players if p.id == from_player_id), None)
+        to_player = next((p for p in self.players if p.id == to_player_id), None)
+
+        if not from_player or not to_player:
+            return False
+
+        # Create event
+        event = create_question_event(
+            from_player_id=from_player_id,
+            from_player_name=from_player.name,
+            to_player_id=to_player_id,
+            to_player_name=to_player.name,
+            question_text=content
         )
-        self.messages.append(message)
+        self.events.append(event)
 
         # Switch turn to the questioned player
         self.current_turn = to_player_id
@@ -168,21 +174,25 @@ class Game:
         if self.current_turn != from_player_id:
             return False
 
-        # Create answer message - answer goes back to the player who asked the question
-        message = Message(
-            id=f"{time.time()}_{from_player_id}",
-            type="answer",
-            from_id=from_player_id,
-            to_id=self.last_questioned_by,
-            content=content,
-            timestamp=time.time()
+        # Get player names
+        from_player = next((p for p in self.players if p.id == from_player_id), None)
+        if not from_player:
+            return False
+
+        # Create answer event
+        event = create_answer_event(
+            from_player_id=from_player_id,
+            from_player_name=from_player.name,
+            to_player_id=self.last_questioned_by,
+            answer_text=content
         )
-        self.messages.append(message)
+        self.events.append(event)
 
         # Increment Q&A round counter (a round = question + answer)
         self.qa_rounds_completed += 1
 
         # Player can now ask the next question (turn stays with them)
+        # Note: last_questioned_by is kept to prevent asking the same player back
         return True
 
     def stop_clock_for_accusation(self, accuser_id: str, accused_id: str) -> bool:
@@ -192,7 +202,9 @@ class Game:
 
         # Check if player has already accused this round
         accuser = next((p for p in self.players if p.id == accuser_id), None)
-        if not accuser or accuser.has_accused_this_round:
+        accused = next((p for p in self.players if p.id == accused_id), None)
+
+        if not accuser or not accused or accuser.has_accused_this_round:
             return False
 
         # Pause the timer
@@ -208,6 +220,15 @@ class Game:
         )
         self.accusations.append(accusation)
 
+        # Create accusation event
+        event = create_accusation_event(
+            accuser_id=accuser_id,
+            accuser_name=accuser.name,
+            accused_id=accused_id,
+            accused_name=accused.name
+        )
+        self.events.append(event)
+
         accuser.has_accused_this_round = True
         return True
 
@@ -220,7 +241,23 @@ class Game:
         if voter_id == self.current_accusation.accused_id:
             return False
 
+        # Get player names
+        voter = next((p for p in self.players if p.id == voter_id), None)
+        accused = next((p for p in self.players if p.id == self.current_accusation.accused_id), None)
+
+        if not voter or not accused:
+            return False
+
         self.current_accusation.votes[voter_id] = vote
+
+        # Create vote event
+        event = create_vote_event(
+            voter_id=voter_id,
+            voter_name=voter.name,
+            vote=vote,
+            accused_name=accused.name
+        )
+        self.events.append(event)
 
         # Check if all eligible players have voted
         eligible_voters = [p.id for p in self.players if p.id != self.current_accusation.accused_id]
@@ -238,29 +275,52 @@ class Game:
         votes = list(self.current_accusation.votes.values())
         unanimous_guilty = all(votes) and len(votes) > 0
 
+        # Get accused player
+        accused_player = next((p for p in self.players if p.id == self.current_accusation.accused_id), None)
+        if not accused_player:
+            return
+
         if unanimous_guilty:
             # Accusation successful - reveal the accused player's role
-            accused_player = next((p for p in self.players if p.id == self.current_accusation.accused_id), None)
-            if accused_player:
-                if accused_player.role == PlayerRole.SPY:
-                    # Spy caught - innocents win
-                    self._end_game(GameEndReason.SPY_ACCUSED, "innocents")
-                    # Award points: accuser gets 2, others get 1
-                    for player in self.players:
-                        if player.role == PlayerRole.INNOCENT:
-                            if player.id == self.current_accusation.accuser_id:
-                                player.points += 2
-                            else:
-                                player.points += 1
-                else:
-                    # Innocent accused - spy wins
-                    self._end_game(GameEndReason.INNOCENT_ACCUSED, "spy")
-                    # Spy gets 4 points
-                    spy = next((p for p in self.players if p.id == self.spy_id), None)
-                    if spy:
-                        spy.points += 4
+            was_spy = accused_player.role == PlayerRole.SPY
+
+            # Create accusation resolved event
+            event = create_accusation_resolved_event(
+                result="unanimous_guilty",
+                accused_id=accused_player.id,
+                accused_name=accused_player.name,
+                was_spy=was_spy
+            )
+            self.events.append(event)
+
+            if was_spy:
+                # Spy caught - innocents win
+                self._end_game(GameEndReason.SPY_ACCUSED, "innocents")
+                # Award points: accuser gets 2, others get 1
+                for player in self.players:
+                    if player.role == PlayerRole.INNOCENT:
+                        if player.id == self.current_accusation.accuser_id:
+                            player.points += 2
+                        else:
+                            player.points += 1
+            else:
+                # Innocent accused - spy wins
+                self._end_game(GameEndReason.INNOCENT_ACCUSED, "spy")
+                # Spy gets 4 points
+                spy = next((p for p in self.players if p.id == self.spy_id), None)
+                if spy:
+                    spy.points += 4
         else:
             # Accusation failed - resume game
+            # Create accusation resolved event
+            event = create_accusation_resolved_event(
+                result="not_unanimous",
+                accused_id=accused_player.id,
+                accused_name=accused_player.name,
+                was_spy=False
+            )
+            self.events.append(event)
+
             self.timer.resume()
             self.clock_stopped = False
             self.clock_stopped_by = None
@@ -284,14 +344,29 @@ class Game:
         if self.clock_stopped:
             return False
 
+        # Get spy player
+        spy = next((p for p in self.players if p.id == spy_id), None)
+        if not spy:
+            return False
+
         # Check guess
-        if guessed_location.lower() == self.location.name.lower():
+        correct = guessed_location.lower() == self.location.name.lower()
+
+        # Create spy guess location event
+        event = create_spy_guess_location_event(
+            spy_id=spy_id,
+            spy_name=spy.name,
+            guess=guessed_location,
+            correct=correct,
+            actual_location=self.location.name if not correct else None
+        )
+        self.events.append(event)
+
+        if correct:
             # Spy wins
             self._end_game(GameEndReason.SPY_GUESSED_LOCATION, "spy")
             # Spy gets 4 points
-            spy = next((p for p in self.players if p.id == self.spy_id), None)
-            if spy:
-                spy.points += 4
+            spy.points += 4
         else:
             # Spy loses
             self._end_game(GameEndReason.SPY_FAILED_GUESS, "innocents")
@@ -317,6 +392,10 @@ class Game:
 
     def _handle_time_expiry(self):
         """Handle the end-of-time accusation phase."""
+        # Create round end event
+        event = create_round_end_event(reason="time_expired")
+        self.events.append(event)
+
         # Start end-of-round accusation phase
         self._start_end_of_round_voting()
 
@@ -357,9 +436,11 @@ class Game:
         if accuser_id == accused_id:
             return False
 
-        # Find accuser
+        # Find accuser and accused
         accuser = next((p for p in self.players if p.id == accuser_id), None)
-        if not accuser or accuser.has_accused_this_round:
+        accused = next((p for p in self.players if p.id == accused_id), None)
+
+        if not accuser or not accused or accuser.has_accused_this_round:
             return False
 
         # Create accusation
@@ -371,6 +452,16 @@ class Game:
         )
 
         self.accusations.append(accusation)
+
+        # Create accusation event
+        event = create_accusation_event(
+            accuser_id=accuser_id,
+            accuser_name=accuser.name,
+            accused_id=accused_id,
+            accused_name=accused.name
+        )
+        self.events.append(event)
+
         accuser.has_accused_this_round = True
 
         return True
@@ -390,11 +481,22 @@ class Game:
 
         # Check if voter is in the game
         voter = next((p for p in self.players if p.id == voter_id), None)
-        if not voter:
+        accused = next((p for p in self.players if p.id == accusation.accused_id), None)
+
+        if not voter or not accused:
             return False
 
         # Record vote
         accusation.votes[voter_id] = vote
+
+        # Create vote event
+        event = create_vote_event(
+            voter_id=voter_id,
+            voter_name=voter.name,
+            vote=vote,
+            accused_name=accused.name
+        )
+        self.events.append(event)
 
         # Check if all eligible players have voted
         eligible_voters = [p.id for p in self.players if p.id != accusation.accused_id]
@@ -412,10 +514,25 @@ class Game:
         # Check if unanimous guilty vote
         all_votes_guilty = all(vote for vote in accusation.votes.values())
 
+        # Get accused player
+        accused = next((p for p in self.players if p.id == accusation.accused_id), None)
+        if not accused:
+            return
+
         if all_votes_guilty and len(accusation.votes) > 0:
             # Unanimous guilty vote - reveal the accused
-            accused = next((p for p in self.players if p.id == accusation.accused_id), None)
-            if accused and accused.role == PlayerRole.SPY:
+            was_spy = accused.role == PlayerRole.SPY
+
+            # Create accusation resolved event
+            event = create_accusation_resolved_event(
+                result="unanimous_guilty",
+                accused_id=accused.id,
+                accused_name=accused.name,
+                was_spy=was_spy
+            )
+            self.events.append(event)
+
+            if was_spy:
                 # Correctly accused the spy - innocents win
                 self._end_game(GameEndReason.SPY_ACCUSED, "innocents")
                 # Each innocent gets 1 point, accuser gets 2 points
@@ -432,7 +549,14 @@ class Game:
                 if spy:
                     spy.points += 4
         else:
-            # Not unanimous - move to next accuser
+            # Not unanimous - create event and move to next accuser
+            event = create_accusation_resolved_event(
+                result="not_unanimous",
+                accused_id=accused.id,
+                accused_name=accused.name,
+                was_spy=False
+            )
+            self.events.append(event)
             self._move_to_next_end_of_round_accuser()
 
     def _move_to_next_end_of_round_accuser(self):
@@ -464,8 +588,32 @@ class Game:
         self.status = GameStatus.FINISHED
         self.end_reason = reason
         self.winner = winner
+
+        # Create game end event with details
+        details = self._get_game_end_details(reason, winner)
+        event = create_game_end_event(
+            winner=winner,
+            reason=reason.value,
+            details=details
+        )
+        self.events.append(event)
+
         # Stop the timer when game ends
         self.timer.stop()
+
+    def _get_game_end_details(self, reason: GameEndReason, winner: str) -> str:
+        """Get detailed message for game end"""
+        if reason == GameEndReason.SPY_ACCUSED:
+            return "The spy was correctly identified!"
+        elif reason == GameEndReason.INNOCENT_ACCUSED:
+            return "An innocent was wrongly accused!"
+        elif reason == GameEndReason.SPY_GUESSED_LOCATION:
+            return "The spy guessed the location correctly!"
+        elif reason == GameEndReason.SPY_FAILED_GUESS:
+            return "The spy's guess was incorrect!"
+        elif reason == GameEndReason.TIME_EXPIRED:
+            return "Time ran out and the spy was not caught!"
+        return ""
 
 
     def to_dict(self) -> Dict[str, Any]:
@@ -487,16 +635,15 @@ class Game:
             "currentTurn": self.current_turn,
             "location": self.location.name if self.location else None,
             "availableLocations": [loc.name for loc in LOCATIONS],
-            "messages": [
+            "events": [
                 {
-                    "id": m.id,
-                    "type": m.type,
-                    "from": m.from_id,
-                    "to": m.to_id,
-                    "content": m.content,
-                    "timestamp": m.timestamp
+                    "type": e.type,
+                    "playerId": e.player_id,
+                    "content": e.content,
+                    "timestamp": e.timestamp,
+                    "formattedText": e.formatted_text
                 }
-                for m in self.messages
+                for e in self.events
             ],
             "clockStopped": self.clock_stopped,
             "lastQuestionedBy": self.last_questioned_by,

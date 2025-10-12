@@ -40,10 +40,10 @@ def build_bot_tool_prompt(
     last_questioner_id = None
 
     # Find who last asked this bot a question (if any)
-    if game.messages:
-        for message in reversed(game.messages):
-            if message.type == "question" and message.to_id == bot_id:
-                last_questioner_id = message.from_id
+    if game.events:
+        for event in reversed(game.events):
+            if event.type == "question" and event.content.get("to_id") == bot_id:
+                last_questioner_id = event.player_id
                 break
 
     for player in game.players:
@@ -58,22 +58,14 @@ def build_bot_tool_prompt(
 
     player_name_and_id = "\n".join(player_list)
 
-    # Build Q&A history
-    qa_history_lines = []
-    if game.messages:
-        for message in game.messages:
-            from_player = next((p for p in game.players if p.id == message.from_id), None)
-            to_player = next((p for p in game.players if p.id == message.to_id), None)
+    # Build event history from formatted events
+    event_history_lines = []
+    if game.events:
+        for event in game.events:
+            # Use the pre-formatted text from the event
+            event_history_lines.append(event.formatted_text)
 
-            from_name = from_player.name if from_player else "Unknown"
-            to_name = to_player.name if to_player else "Unknown"
-
-            if message.type == "question":
-                qa_history_lines.append(f"**{from_name}** asked **{to_name}**: {message.content}")
-            elif message.type == "answer":
-                qa_history_lines.append(f"**{from_name}** answered: {message.content}")
-
-    qa_history = "\n".join(qa_history_lines) if qa_history_lines else "No questions or answers yet."
+    qa_history = "\n".join(event_history_lines) if event_history_lines else "No game events yet."
 
     # Build accusation context if game is in voting mode
     accusation_context = ""
@@ -194,10 +186,10 @@ def get_action_context(game: Game, bot_id: str) -> str:
     # Check if it's the bot's turn
     if game.current_turn == bot_id:
         # Check if bot needs to answer a question
-        last_message = game.messages[-1] if game.messages else None
-        if (last_message and
-            last_message.type == "question" and
-            last_message.to_id == bot_id):
+        last_event = game.events[-1] if game.events else None
+        if (last_event and
+            last_event.type == "question" and
+            last_event.content.get("to_id") == bot_id):
             return "answer the question asked to you"
         else:
             return "ask a question to another player"
