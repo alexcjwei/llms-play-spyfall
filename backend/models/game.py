@@ -9,6 +9,11 @@ from models.player import Player, PlayerRole
 from models.location import Location, LOCATIONS
 from models.message import GameEvent, Accusation, create_question_event, create_answer_event, create_accusation_event, create_vote_event, create_accusation_resolved_event, create_spy_guess_location_event, create_round_end_event, create_game_end_event
 from models.timer import GameTimer
+from models.commands import (
+    GameCommand, StateChange, AskQuestionCommand, AnswerCommand, AccuseCommand,
+    VoteCommand, GuessLocationCommand, EndOfRoundAccuseCommand, EndOfRoundVoteCommand,
+    TimeExpiredCommand
+)
 
 
 class GameStatus(Enum):
@@ -106,6 +111,479 @@ class Game:
         self.timer.start()
 
         return True
+
+    # =========================================================================
+    # STATE MACHINE INTERFACE
+    # =========================================================================
+
+    def process_event(self, command: GameCommand) -> StateChange:
+        """
+        Process a game command and update state atomically.
+        This is the ONLY public method that should mutate game state.
+
+        Args:
+            command: The command to process
+
+        Returns:
+            StateChange with success status, generated events, and any errors
+        """
+        # Validate command
+        validation_error = self._validate_command(command)
+        if validation_error:
+            return StateChange(success=False, events=[], error=validation_error)
+
+        # Dispatch to appropriate handler
+        handlers = {
+            "ask_question": self._handle_ask_question,
+            "answer": self._handle_answer,
+            "accuse": self._handle_accuse,
+            "vote": self._handle_vote,
+            "guess_location": self._handle_guess_location,
+            "end_of_round_accuse": self._handle_end_of_round_accuse,
+            "end_of_round_vote": self._handle_end_of_round_vote,
+            "time_expired": self._handle_time_expired,
+        }
+
+        handler = handlers.get(command.command_type)
+        if not handler:
+            return StateChange(
+                success=False,
+                events=[],
+                error=f"Unknown command type: {command.command_type}"
+            )
+
+        # Execute handler
+        return handler(command)
+
+    def replay_commands(self, commands: List[GameCommand]) -> 'Game':
+        """
+        Replay a sequence of commands to reconstruct game state.
+        Useful for testing and debugging.
+
+        Args:
+            commands: List of commands to replay
+
+        Returns:
+            Self (for chaining)
+
+        Raises:
+            ValueError: If any command fails to replay
+        """
+        for i, command in enumerate(commands):
+            result = self.process_event(command)
+            if not result.success:
+                raise ValueError(
+                    f"Failed to replay command {i} ({command.command_type}): {result.error}"
+                )
+        return self
+
+    # =========================================================================
+    # COMMAND VALIDATORS
+    # =========================================================================
+
+    def _validate_command(self, command: GameCommand) -> Optional[str]:
+        """
+        Validate a command against current game state.
+
+        Returns:
+            Error message if invalid, None if valid
+        """
+        validators = {
+            "ask_question": self._validate_ask_question,
+            "answer": self._validate_answer,
+            "accuse": self._validate_accuse,
+            "vote": self._validate_vote,
+            "guess_location": self._validate_guess_location,
+            "end_of_round_accuse": self._validate_end_of_round_accuse,
+            "end_of_round_vote": self._validate_end_of_round_vote,
+            "time_expired": self._validate_time_expired,
+        }
+
+        validator = validators.get(command.command_type)
+        if not validator:
+            return f"No validator for command type: {command.command_type}"
+
+        return validator(command)
+
+    def _validate_ask_question(self, cmd: AskQuestionCommand) -> Optional[str]:
+        """Validate ask question command"""
+        if self.status != GameStatus.IN_PROGRESS:
+            return "Game is not in progress"
+        if self.clock_stopped:
+            return "Clock is stopped"
+        if self.current_turn != cmd.player_id:
+            return f"Not {cmd.player_id}'s turn"
+        if self.last_questioned_by == cmd.target_player_id:
+            return "Cannot ask the player who just asked you"
+        if not self._get_player(cmd.player_id):
+            return f"Player {cmd.player_id} not found"
+        if not self._get_player(cmd.target_player_id):
+            return f"Target player {cmd.target_player_id} not found"
+        if cmd.player_id == cmd.target_player_id:
+            return "Cannot ask yourself"
+        return None
+
+    def _validate_answer(self, cmd: AnswerCommand) -> Optional[str]:
+        """Validate answer command"""
+        if self.status != GameStatus.IN_PROGRESS:
+            return "Game is not in progress"
+        if self.clock_stopped:
+            return "Clock is stopped"
+        if self.current_turn != cmd.player_id:
+            return f"Not {cmd.player_id}'s turn"
+        if not self._get_player(cmd.player_id):
+            return f"Player {cmd.player_id} not found"
+        if not self.last_questioned_by:
+            return "No question to answer"
+        return None
+
+    def _validate_accuse(self, cmd: AccuseCommand) -> Optional[str]:
+        """Validate accuse command"""
+        if self.status != GameStatus.IN_PROGRESS:
+            return "Game is not in progress"
+        if self.clock_stopped:
+            return "Clock is already stopped"
+        if cmd.player_id == cmd.accused_id:
+            return "Cannot accuse yourself"
+
+        accuser = self._get_player(cmd.player_id)
+        if not accuser:
+            return f"Player {cmd.player_id} not found"
+        if accuser.has_accused_this_round:
+            return "Player has already accused this round"
+        if not self._get_player(cmd.accused_id):
+            return f"Accused player {cmd.accused_id} not found"
+        return None
+
+    def _validate_vote(self, cmd: VoteCommand) -> Optional[str]:
+        """Validate vote command"""
+        if self.status != GameStatus.VOTING:
+            return "Game is not in voting phase"
+        if not self.current_accusation:
+            return "No active accusation"
+        if cmd.player_id == self.current_accusation.accused_id:
+            return "Accused player cannot vote"
+        if not self._get_player(cmd.player_id):
+            return f"Player {cmd.player_id} not found"
+        if cmd.player_id in self.current_accusation.votes:
+            return "Player has already voted"
+        return None
+
+    def _validate_guess_location(self, cmd: GuessLocationCommand) -> Optional[str]:
+        """Validate guess location command"""
+        if self.status != GameStatus.IN_PROGRESS:
+            return "Game is not in progress"
+        if self.clock_stopped:
+            return "Clock is stopped"
+        if cmd.player_id != self.spy_id:
+            return "Only the spy can guess the location"
+        if not self.location:
+            return "No location set"
+        return None
+
+    def _validate_end_of_round_accuse(self, cmd: EndOfRoundAccuseCommand) -> Optional[str]:
+        """Validate end of round accuse command"""
+        if self.status != GameStatus.END_OF_ROUND_VOTING:
+            return "Not in end-of-round voting phase"
+        if cmd.player_id != self.current_turn:
+            return f"Not {cmd.player_id}'s turn to accuse"
+        if cmd.player_id == cmd.accused_id:
+            return "Cannot accuse yourself"
+
+        accuser = self._get_player(cmd.player_id)
+        if not accuser:
+            return f"Player {cmd.player_id} not found"
+        if accuser.has_accused_this_round:
+            return "Player has already accused this round"
+        if not self._get_player(cmd.accused_id):
+            return f"Accused player {cmd.accused_id} not found"
+        return None
+
+    def _validate_end_of_round_vote(self, cmd: EndOfRoundVoteCommand) -> Optional[str]:
+        """Validate end of round vote command"""
+        if self.status != GameStatus.END_OF_ROUND_VOTING:
+            return "Not in end-of-round voting phase"
+        if not self.current_accusation:
+            return "No active accusation"
+        if cmd.player_id == self.current_accusation.accused_id:
+            return "Accused player cannot vote"
+        if not self._get_player(cmd.player_id):
+            return f"Player {cmd.player_id} not found"
+        if cmd.player_id in self.current_accusation.votes:
+            return "Player has already voted"
+        return None
+
+    def _validate_time_expired(self, cmd: TimeExpiredCommand) -> Optional[str]:
+        """Validate time expired command"""
+        if self.status != GameStatus.IN_PROGRESS:
+            return "Game is not in progress"
+        if self.clock_stopped:
+            return "Clock is already stopped"
+        if not self.timer.is_expired():
+            return "Timer has not expired yet"
+        return None
+
+    # =========================================================================
+    # COMMAND HANDLERS
+    # =========================================================================
+
+    def _handle_ask_question(self, cmd: AskQuestionCommand) -> StateChange:
+        """Handle ask question command"""
+        from_player = self._get_player(cmd.player_id)
+        to_player = self._get_player(cmd.target_player_id)
+
+        # Create event
+        event = create_question_event(
+            from_player_id=cmd.player_id,
+            from_player_name=from_player.name,
+            to_player_id=cmd.target_player_id,
+            to_player_name=to_player.name,
+            question_text=cmd.question
+        )
+
+        # Atomically update all related state
+        self.events.append(event)
+        self.current_turn = cmd.target_player_id
+        self.last_questioned_by = cmd.player_id
+
+        return StateChange(
+            success=True,
+            events=[event],
+            state_changes={
+                "current_turn": cmd.target_player_id,
+                "last_questioned_by": cmd.player_id
+            }
+        )
+
+    def _handle_answer(self, cmd: AnswerCommand) -> StateChange:
+        """Handle answer command"""
+        from_player = self._get_player(cmd.player_id)
+
+        # Create event
+        event = create_answer_event(
+            from_player_id=cmd.player_id,
+            from_player_name=from_player.name,
+            to_player_id=self.last_questioned_by,
+            answer_text=cmd.answer
+        )
+
+        # Atomically update state
+        self.events.append(event)
+        self.qa_rounds_completed += 1
+        # Turn stays with answerer, last_questioned_by stays to prevent asking back
+
+        return StateChange(
+            success=True,
+            events=[event],
+            state_changes={
+                "qa_rounds_completed": self.qa_rounds_completed
+            }
+        )
+
+    def _handle_accuse(self, cmd: AccuseCommand) -> StateChange:
+        """Handle accuse command"""
+        accuser = self._get_player(cmd.player_id)
+        accused = self._get_player(cmd.accused_id)
+
+        # Pause the timer
+        self.timer.pause()
+
+        # Create accusation
+        accusation = Accusation(
+            accuser_id=cmd.player_id,
+            accused_id=cmd.accused_id
+        )
+        self.accusations.append(accusation)
+
+        # Create event
+        event = create_accusation_event(
+            accuser_id=cmd.player_id,
+            accuser_name=accuser.name,
+            accused_id=cmd.accused_id,
+            accused_name=accused.name
+        )
+
+        # Atomically update state
+        self.events.append(event)
+        self.clock_stopped = True
+        self.clock_stopped_by = cmd.player_id
+        self.status = GameStatus.VOTING
+        accuser.has_accused_this_round = True
+
+        return StateChange(
+            success=True,
+            events=[event],
+            state_changes={
+                "status": GameStatus.VOTING,
+                "clock_stopped": True,
+                "clock_stopped_by": cmd.player_id
+            }
+        )
+
+    def _handle_vote(self, cmd: VoteCommand) -> StateChange:
+        """Handle vote command"""
+        voter = self._get_player(cmd.player_id)
+        accused = self._get_player(self.current_accusation.accused_id)
+
+        # Record vote
+        self.current_accusation.votes[cmd.player_id] = cmd.vote
+
+        # Create event
+        event = create_vote_event(
+            voter_id=cmd.player_id,
+            voter_name=voter.name,
+            vote=cmd.vote,
+            accused_name=accused.name
+        )
+        self.events.append(event)
+
+        # Check if all eligible players have voted
+        eligible_voters = [p.id for p in self.players if p.id != self.current_accusation.accused_id]
+        all_voted = len(self.current_accusation.votes) == len(eligible_voters)
+
+        state_changes = {"vote_recorded": True}
+
+        # If all voted, resolve immediately
+        if all_voted:
+            self._resolve_accusation()
+            state_changes["accusation_resolved"] = True
+
+        return StateChange(
+            success=True,
+            events=[event],
+            state_changes=state_changes
+        )
+
+    def _handle_guess_location(self, cmd: GuessLocationCommand) -> StateChange:
+        """Handle guess location command"""
+        spy = self._get_player(cmd.player_id)
+
+        # Check guess
+        correct = cmd.location.lower() == self.location.name.lower()
+
+        # Create event
+        event = create_spy_guess_location_event(
+            spy_id=cmd.player_id,
+            spy_name=spy.name,
+            guess=cmd.location,
+            correct=correct,
+            actual_location=self.location.name if not correct else None
+        )
+        self.events.append(event)
+
+        # End game based on result
+        if correct:
+            self._end_game(GameEndReason.SPY_GUESSED_LOCATION, "spy")
+            spy.points += 4
+        else:
+            self._end_game(GameEndReason.SPY_FAILED_GUESS, "innocents")
+            for player in self.players:
+                if player.role == PlayerRole.INNOCENT:
+                    player.points += 1
+
+        return StateChange(
+            success=True,
+            events=[event],
+            state_changes={
+                "game_ended": True,
+                "winner": self.winner,
+                "end_reason": self.end_reason
+            }
+        )
+
+    def _handle_end_of_round_accuse(self, cmd: EndOfRoundAccuseCommand) -> StateChange:
+        """Handle end of round accuse command"""
+        accuser = self._get_player(cmd.player_id)
+        accused = self._get_player(cmd.accused_id)
+
+        # Create accusation
+        accusation = Accusation(
+            accuser_id=cmd.player_id,
+            accused_id=cmd.accused_id,
+            votes={},
+            is_active=True
+        )
+        self.accusations.append(accusation)
+
+        # Create event
+        event = create_accusation_event(
+            accuser_id=cmd.player_id,
+            accuser_name=accuser.name,
+            accused_id=cmd.accused_id,
+            accused_name=accused.name
+        )
+        self.events.append(event)
+
+        # Update state
+        accuser.has_accused_this_round = True
+
+        return StateChange(
+            success=True,
+            events=[event],
+            state_changes={
+                "accusation_created": True
+            }
+        )
+
+    def _handle_end_of_round_vote(self, cmd: EndOfRoundVoteCommand) -> StateChange:
+        """Handle end of round vote command"""
+        voter = self._get_player(cmd.player_id)
+        accused = self._get_player(self.current_accusation.accused_id)
+
+        # Record vote
+        self.current_accusation.votes[cmd.player_id] = cmd.vote
+
+        # Create event
+        event = create_vote_event(
+            voter_id=cmd.player_id,
+            voter_name=voter.name,
+            vote=cmd.vote,
+            accused_name=accused.name
+        )
+        self.events.append(event)
+
+        # Check if all eligible players have voted
+        eligible_voters = [p.id for p in self.players if p.id != self.current_accusation.accused_id]
+        all_voted = len(self.current_accusation.votes) == len(eligible_voters)
+
+        state_changes = {"vote_recorded": True}
+
+        # If all voted, resolve immediately
+        if all_voted:
+            self._resolve_end_of_round_accusation()
+            state_changes["accusation_resolved"] = True
+
+        return StateChange(
+            success=True,
+            events=[event],
+            state_changes=state_changes
+        )
+
+    def _handle_time_expired(self, cmd: TimeExpiredCommand) -> StateChange:
+        """Handle time expired command"""
+        # Create event
+        event = create_round_end_event(reason="time_expired")
+        self.events.append(event)
+
+        # Start end-of-round voting
+        self._start_end_of_round_voting()
+
+        return StateChange(
+            success=True,
+            events=[event],
+            state_changes={
+                "status": GameStatus.END_OF_ROUND_VOTING,
+                "time_expired": True
+            }
+        )
+
+    # =========================================================================
+    # HELPER METHODS
+    # =========================================================================
+
+    def _get_player(self, player_id: str) -> Optional[Player]:
+        """Get player by ID"""
+        return next((p for p in self.players if p.id == player_id), None)
 
     def _assign_roles(self):
         """Randomly assign spy role and location with roles to other players."""
@@ -384,20 +862,12 @@ class Game:
             return False
 
         if self.timer.is_expired():
-            # Time expired - start final accusation phase
-            self._handle_time_expiry()
-            return True
+            # Time expired - process through state machine
+            command = TimeExpiredCommand()
+            result = self.process_event(command)
+            return result.success
 
         return False
-
-    def _handle_time_expiry(self):
-        """Handle the end-of-time accusation phase."""
-        # Create round end event
-        event = create_round_end_event(reason="time_expired")
-        self.events.append(event)
-
-        # Start end-of-round accusation phase
-        self._start_end_of_round_voting()
 
     def _advance_turn(self):
         """Move to the next player's turn."""

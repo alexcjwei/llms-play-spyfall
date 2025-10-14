@@ -426,6 +426,7 @@ class TestToolIntegration:
             question_text="Test?"
         )
         game.events = [question_event]
+        game.last_questioned_by = "human1"
 
         tools = ToolSelector.get_available_tools(game, "bot1")
         tool_names = [t['name'] for t in tools]

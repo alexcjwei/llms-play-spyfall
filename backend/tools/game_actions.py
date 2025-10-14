@@ -1,6 +1,11 @@
 """Tools for game actions taken by bots"""
 import logging
 from models import GameStatus
+from models.commands import (
+    AskQuestionCommand, AnswerCommand, AccuseCommand, VoteCommand,
+    GuessLocationCommand, EndOfRoundAccuseCommand, EndOfRoundVoteCommand
+)
+
 logger = logging.getLogger(__name__)
 
 ask_tool = {
@@ -19,30 +24,22 @@ ask_tool = {
 
 def ask(game, bot_id: str, thought: str, question: str, target: str) -> bool:
     """Ask a question to another player"""
-    logger.info(f"Bot {bot_id} thinking: {thought}")
+    # Create command
+    command = AskQuestionCommand(
+        player_id=bot_id,
+        target_player_id=target,
+        question=question
+    )
 
-    # Validate target is not the bot themselves
-    if target == bot_id:
-        logger.warning(f"Bot {bot_id} tried to ask themselves a question")
-        return False
+    # Process through state machine
+    result = game.process_event(command)
 
-    # Validate target exists
-    target_player = next((p for p in game.players if p.id == target), None)
-    if not target_player:
-        logger.warning(f"Bot {bot_id} tried to ask non-existent player {target}")
-        return False
-
-    # Validate bot can't ask the player who just asked them
-    if target == game.last_questioned_by:
-        logger.warning(f"Bot {bot_id} tried to ask back the player who just asked them")
-        return False
-
-    # Ask the question using existing game logic
-    success = game.ask_question(bot_id, target, question)
-    if success:
+    if result.success:
         logger.info(f"Bot {bot_id} asked {target}: {question}")
+    else:
+        logger.warning(f"Bot {bot_id} failed to ask question: {result.error}")
 
-    return success
+    return result.success
 
 answer_tool = {
         "name": "answer",
@@ -59,20 +56,21 @@ answer_tool = {
 
 def answer(game, bot_id: str, thought: str, answer: str) -> bool:
     """Answer the question just asked to this bot"""
-    logger.info(f"Bot {bot_id} thinking: {thought}")
+    # Create command
+    command = AnswerCommand(
+        player_id=bot_id,
+        answer=answer
+    )
 
-    # Validate there's a question waiting for this bot to answer
-    last_event = game.events[-1] if game.events else None
-    if not last_event or last_event.type != "question" or last_event.content.get("to_id") != bot_id:
-        logger.warning(f"Bot {bot_id} tried to answer but no question was asked to them")
-        return False
+    # Process through state machine
+    result = game.process_event(command)
 
-    # Answer using existing game logic
-    success = game.give_answer(bot_id, answer)
-    if success:
+    if result.success:
         logger.info(f"Bot {bot_id} answered: {answer}")
+    else:
+        logger.warning(f"Bot {bot_id} failed to answer: {result.error}")
 
-    return success
+    return result.success
 
 accuse_tool = {
         "name": "accuse",
@@ -89,44 +87,35 @@ accuse_tool = {
 
 def accuse(game, bot_id: str, thought: str, target: str = "") -> bool:
     """Accuse another player of being a spy"""
-    logger = logging.getLogger(__name__)
-    logger.info(f"Bot {bot_id} thinking: {thought}")
-
     # If no target specified, bot chooses not to accuse
     if not target or target.strip() == "":
         logger.info(f"Bot {bot_id} chose not to accuse anyone")
         return False
 
-    # Validate target is not the bot themselves
-    if target == bot_id:
-        logger.warning(f"Bot {bot_id} tried to accuse themselves")
-        return False
-
-    # Validate target exists
-    target_player = next((p for p in game.players if p.id == target), None)
-    if not target_player:
-        logger.warning(f"Bot {bot_id} tried to accuse non-existent player {target}")
-        return False
-
-    # Check if bot has already accused this round
-    bot_player = next((p for p in game.players if p.id == bot_id), None)
-    if bot_player and bot_player.has_accused_this_round:
-        logger.warning(f"Bot {bot_id} has already accused this round")
-        return False
-
-    # Make accusation using appropriate game logic based on game state
+    # Create appropriate command based on game state
     if game.status == GameStatus.END_OF_ROUND_VOTING:
-        # End-of-round accusation
-        success = game.make_end_of_round_accusation(bot_id, target)
-        if success:
-            logger.info(f"Bot {bot_id} made end-of-round accusation against {target}")
+        command = EndOfRoundAccuseCommand(
+            player_id=bot_id,
+            accused_id=target
+        )
     else:
-        # Regular mid-game accusation
-        success = game.stop_clock_for_accusation(bot_id, target)
-        if success:
-            logger.info(f"Bot {bot_id} accused {target} of being the spy")
+        command = AccuseCommand(
+            player_id=bot_id,
+            accused_id=target
+        )
 
-    return success
+    # Process through state machine
+    result = game.process_event(command)
+
+    if result.success:
+        if game.status == GameStatus.END_OF_ROUND_VOTING:
+            logger.info(f"Bot {bot_id} made end-of-round accusation against {target}")
+        else:
+            logger.info(f"Bot {bot_id} accused {target} of being the spy")
+    else:
+        logger.warning(f"Bot {bot_id} failed to accuse: {result.error}")
+
+    return result.success
 
 vote_tool = {
         "name": "vote",
@@ -143,38 +132,27 @@ vote_tool = {
 
 def vote(game, bot_id: str, thought: str, guilty: bool) -> bool:
     """Vote on the current accusation"""
-    logger.info(f"Bot {bot_id} thinking: {thought}")
+    # Create appropriate command based on game state
+    if game.status == GameStatus.END_OF_ROUND_VOTING:
+        command = EndOfRoundVoteCommand(
+            player_id=bot_id,
+            vote=guilty
+        )
+    else:
+        command = VoteCommand(
+            player_id=bot_id,
+            vote=guilty
+        )
 
-    # Check if game is in voting state
-    if game.status not in [GameStatus.VOTING, GameStatus.END_OF_ROUND_VOTING]:
-        logger.warning(f"Bot {bot_id} tried to vote but game not in voting state")
-        return False
+    # Process through state machine
+    result = game.process_event(command)
 
-    # Check if there's an active accusation
-    if not game.current_accusation:
-        logger.warning(f"Bot {bot_id} tried to vote but no active accusation")
-        return False
-
-    # Check if bot can vote (not the accused player)
-    if bot_id == game.current_accusation.accused_id:
-        logger.warning(f"Bot {bot_id} tried to vote but is the accused player")
-        return False
-
-    # Check if bot has already voted
-    if bot_id in game.current_accusation.votes:
-        logger.warning(f"Bot {bot_id} has already voted on this accusation")
-        return False
-
-    # Cast vote using appropriate game method
-    if game.status == GameStatus.VOTING:
-        success = game.vote_on_accusation(bot_id, guilty)
-    else:  # END_OF_ROUND_VOTING
-        success = game.vote_on_end_of_round_accusation(bot_id, guilty)
-
-    if success:
+    if result.success:
         logger.info(f"Bot {bot_id} voted {'guilty' if guilty else 'innocent'} on accusation")
+    else:
+        logger.warning(f"Bot {bot_id} failed to vote: {result.error}")
 
-    return success
+    return result.success
 
 guess_location_tool = {
         "name": "guess_location",
@@ -189,28 +167,28 @@ guess_location_tool = {
         }
     }
 
-def guess_location(game, bot_id: str, thought: str, location: str) -> bool:
+def guess_location(game, bot_id: str, thought: str, location: str = "") -> bool:
     """Guess the location as the spy, ending the game"""
-    logger.info(f"Bot {bot_id} thinking: {thought}")
-
-    # Validate the bot is actually the spy
-    if game.spy_id != bot_id:
-        logger.warning(f"Bot {bot_id} tried to guess location but is not the spy")
+    # If no location specified, bot chooses not to guess
+    if not location or location.strip() == "":
+        logger.info(f"Bot {bot_id} chose not to guess the location")
         return False
 
-    # Validate location is valid
-    from models.location import LOCATIONS
-    valid_locations = [loc.name for loc in LOCATIONS]
-    if location not in valid_locations:
-        logger.warning(f"Bot {bot_id} guessed invalid location: {location}")
-        return False
+    # Create command
+    command = GuessLocationCommand(
+        player_id=bot_id,
+        location=location
+    )
 
-    # Make the guess using existing game logic
-    success = game.spy_guess_location(bot_id, location)
-    if success:
+    # Process through state machine
+    result = game.process_event(command)
+
+    if result.success:
         logger.info(f"Spy bot {bot_id} guessed location: {location}")
+    else:
+        logger.warning(f"Bot {bot_id} failed to guess location: {result.error}")
 
-    return success
+    return result.success
 
 
 # List of all available tools for easy reference

@@ -122,6 +122,7 @@ class TestToolSelector:
             question_text="What do you do here?"
         )
         sample_game.events = [question_event]
+        sample_game.last_questioned_by = "human1"
 
         tools = ToolSelector.get_available_tools(sample_game, "bot1")
 

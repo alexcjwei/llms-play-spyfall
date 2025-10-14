@@ -3,7 +3,11 @@ import logging
 import json
 from typing import Optional
 
-from models import Player
+from models import Player, GameStatus
+from models.commands import (
+    AskQuestionCommand, AnswerCommand, AccuseCommand, VoteCommand,
+    GuessLocationCommand, EndOfRoundAccuseCommand, EndOfRoundVoteCommand
+)
 from websocket.connection_manager import connection_manager
 from services import game_service
 
@@ -114,7 +118,15 @@ async def handle_ask_question(client_id: str, message: dict):
     if not game:
         return
 
-    if game.ask_question(client_id, target_id, content):
+    # Create and process command
+    command = AskQuestionCommand(
+        player_id=client_id,
+        target_player_id=target_id,
+        question=content
+    )
+    result = game.process_event(command)
+
+    if result.success:
         logger.info(f"Question asked: {client_id} -> {target_id}: {content}")
         # Send updated game state to all players
         await connection_manager.send_game_state(game_id)
@@ -126,7 +138,7 @@ async def handle_ask_question(client_id: str, message: dict):
         # Send error to the requesting player
         error_response = {
             "type": "question_error",
-            "message": "Cannot ask question (not your turn or invalid target)",
+            "message": result.error or "Cannot ask question",
         }
         await connection_manager.send_personal_message(json.dumps(error_response), client_id)
 
@@ -143,7 +155,14 @@ async def handle_give_answer(client_id: str, message: dict):
     if not game:
         return
 
-    if game.give_answer(client_id, content):
+    # Create and process command
+    command = AnswerCommand(
+        player_id=client_id,
+        answer=content
+    )
+    result = game.process_event(command)
+
+    if result.success:
         logger.info(f"Answer given: {client_id}: {content}")
         # Send updated game state to all players
         await connection_manager.send_game_state(game_id)
@@ -155,7 +174,7 @@ async def handle_give_answer(client_id: str, message: dict):
         # Send error to the requesting player
         error_response = {
             "type": "answer_error",
-            "message": "Cannot give answer (not your turn)",
+            "message": result.error or "Cannot give answer",
         }
         await connection_manager.send_personal_message(json.dumps(error_response), client_id)
 
@@ -176,18 +195,25 @@ async def handle_accuse_player(client_id: str, message: dict):
         await connection_manager.send_personal_message(json.dumps(error_response), client_id)
         return
 
-    # Use appropriate accusation method based on game status
-    from models import GameStatus
+    # Create appropriate command based on game status
     if game.status == GameStatus.END_OF_ROUND_VOTING:
-        success = game.make_end_of_round_accusation(client_id, accused_id)
+        command = EndOfRoundAccuseCommand(
+            player_id=client_id,
+            accused_id=accused_id
+        )
         accusation_type = "end-of-round"
         response_type = "end_of_round_accusation_made"
     else:
-        success = game.stop_clock_for_accusation(client_id, accused_id)
+        command = AccuseCommand(
+            player_id=client_id,
+            accused_id=accused_id
+        )
         accusation_type = "mid-game"
         response_type = "accusation_made"
 
-    if success:
+    result = game.process_event(command)
+
+    if result.success:
         logger.info(f"Player {client_id} made {accusation_type} accusation against {accused_id} in game {game_id}")
 
         # Cancel any pending bot actions - accusation interrupts everything
@@ -216,7 +242,7 @@ async def handle_accuse_player(client_id: str, message: dict):
     else:
         error_response = {
             "type": "accusation_error",
-            "message": "Cannot make accusation (game not in progress, already accused this round, or clock stopped)",
+            "message": result.error or "Cannot make accusation",
         }
         await connection_manager.send_personal_message(json.dumps(error_response), client_id)
 
@@ -233,16 +259,23 @@ async def handle_vote(client_id: str, message: dict):
     if not game:
         return
 
-    # Use appropriate voting method based on game status
-    from models import GameStatus
+    # Create appropriate command based on game status
     if game.status == GameStatus.END_OF_ROUND_VOTING:
-        success = game.vote_on_end_of_round_accusation(client_id, vote)
+        command = EndOfRoundVoteCommand(
+            player_id=client_id,
+            vote=vote
+        )
         vote_type = "end-of-round"
     else:
-        success = game.vote_on_accusation(client_id, vote)
+        command = VoteCommand(
+            player_id=client_id,
+            vote=vote
+        )
         vote_type = "mid-game"
 
-    if success:
+    result = game.process_event(command)
+
+    if result.success:
         logger.info(f"Player {client_id} voted {vote} in {vote_type} voting in game {game_id}")
 
         # Send updated game state to all players
@@ -270,7 +303,14 @@ async def handle_spy_guess_location(client_id: str, message: dict):
         await connection_manager.send_personal_message(json.dumps(error_response), client_id)
         return
 
-    if game.spy_guess_location(client_id, guessed_location):
+    # Create and process command
+    command = GuessLocationCommand(
+        player_id=client_id,
+        location=guessed_location
+    )
+    result = game.process_event(command)
+
+    if result.success:
         logger.info(f"Spy {client_id} guessed location: {guessed_location} in game {game_id}")
 
         # Cancel any pending bot actions - game is ending
@@ -295,7 +335,7 @@ async def handle_spy_guess_location(client_id: str, message: dict):
     else:
         error_response = {
             "type": "spy_guess_error",
-            "message": "Cannot guess location (not the spy, game not in progress, or clock stopped)",
+            "message": result.error or "Cannot guess location",
         }
         await connection_manager.send_personal_message(json.dumps(error_response), client_id)
 
